@@ -29,6 +29,12 @@ const swaggerOptions: Options = {
             id: { type: "string", example: "INS-HAR-50KG" }
           }
         },
+        SystemConfig: {
+          type: "object",
+          properties: {
+            tasaCambio: { type: "number", example: 36.6 }
+          }
+        },
         Insumo: {
           allOf: [
             { $ref: "#/components/schemas/Identifiable" },

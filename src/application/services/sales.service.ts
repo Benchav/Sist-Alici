@@ -8,10 +8,15 @@ export type { DetallePago } from "../../core/entities/venta.entity";
 
 export class SalesService {
   private readonly db = InMemoryDatabase.getInstance();
-  private readonly tasaCambioBase: number;
 
   constructor(config?: SystemConfig) {
-    this.tasaCambioBase = config?.tasaCambio ?? 1;
+    if (config?.tasaCambio && config.tasaCambio > 0) {
+      this.db.config = { ...this.db.config, tasaCambio: config.tasaCambio };
+    }
+  }
+
+  private get tasaCambioBase(): number {
+    return this.db.config.tasaCambio ?? 1;
   }
 
   public obtenerHistorial(): Venta[] {

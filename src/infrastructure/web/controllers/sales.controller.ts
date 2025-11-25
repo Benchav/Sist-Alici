@@ -2,6 +2,8 @@ import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { SalesService } from "../../../application/services/sales.service";
 import { Role } from "../../../core/entities/usuario.entity";
+import { PdfService } from "../../reports/pdf.service";
+import { ExcelService } from "../../reports/excel.service";
 import { authenticateJWT, authorizeRoles } from "../middlewares/auth.middleware";
 
 /**
@@ -16,6 +18,8 @@ const tasaCambioEnv = Number(process.env.TASA_CAMBIO_BASE);
 const salesService = Number.isFinite(tasaCambioEnv) && tasaCambioEnv > 0
   ? new SalesService({ tasaCambio: tasaCambioEnv })
   : new SalesService();
+const pdfService = new PdfService();
+const excelService = new ExcelService();
 
 const checkoutSchema = z.object({
   items: z
@@ -39,6 +43,73 @@ const checkoutSchema = z.object({
     )
     .nonempty("Debe registrar al menos un pago.")
 });
+
+/**
+ * @swagger
+ * /api/sales/report/excel:
+ *   get:
+ *     summary: Descargar reporte de ventas en Excel
+ *     tags: [Sales]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Archivo Excel generado
+ */
+salesRouter.get(
+  "/report/excel",
+  authenticateJWT,
+  authorizeRoles(Role.ADMIN),
+  async (_req: Request, res: Response) => {
+    try {
+      const ventas = salesService.obtenerHistorial();
+      const buffer = await excelService.generarReporteVentas(ventas);
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      );
+      res.setHeader("Content-Disposition", 'attachment; filename="ventas.xlsx"');
+      return res.send(buffer);
+    } catch (error) {
+      return handleControllerError(error, res);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/sales/{id}/pdf:
+ *   get:
+ *     summary: Descargar factura PDF de una venta
+ *     tags: [Sales]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: PDF generado
+ */
+salesRouter.get(
+  "/:id/pdf",
+  authenticateJWT,
+  authorizeRoles(Role.ADMIN, Role.CAJERO),
+  async (req: Request, res: Response) => {
+    try {
+      const venta = salesService.obtenerVentaPorId(req.params.id);
+      const buffer = await pdfService.generarFactura(venta);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="venta-${venta.id}.pdf"`);
+      return res.send(buffer);
+    } catch (error) {
+      return handleControllerError(error, res);
+    }
+  }
+);
 
 /**
  * @swagger
