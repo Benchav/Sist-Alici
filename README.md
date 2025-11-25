@@ -112,4 +112,6 @@ Usa estas cuentas para pruebas inmediatas.
 - Añadir pruebas automatizadas (unitarias e integración) para servicios y controladores.
 - Configurar CI para lint/build/test.
 
-¡Disfruta construyendo sobre SIST-ALICI ERP!
+## Autor
+- Nombre: **Joshua Chávez**
+- Portafolio: https://joshuachavl.vercel.app
