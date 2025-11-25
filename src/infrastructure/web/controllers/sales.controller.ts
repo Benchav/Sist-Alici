@@ -49,44 +49,26 @@ const checkoutSchema = z.object({
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             required:
- *               - items
- *               - pagos
- *             properties:
- *               items:
- *                 type: array
- *                 items:
- *                   type: object
- *                   required:
- *                     - productoId
- *                     - cantidad
- *                   properties:
- *                     productoId:
- *                       type: string
- *                     cantidad:
- *                       type: integer
- *               pagos:
- *                 type: array
- *                 items:
- *                   type: object
- *                   required:
- *                     - moneda
- *                     - cantidad
- *                   properties:
- *                     moneda:
- *                       type: string
- *                     cantidad:
- *                       type: number
- *                     tasa:
- *                       type: number
+ *             $ref: '#/components/schemas/SalesCheckoutRequest'
  *     responses:
  *       201:
  *         description: Venta procesada
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SalesCheckoutResponse'
  *       400:
  *         description: Error de validación o negocio
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  *       500:
  *         description: Error interno del servidor
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  */
 salesRouter.post("/checkout", (req: Request, res: Response) => {
   const parsed = checkoutSchema.safeParse(req.body);

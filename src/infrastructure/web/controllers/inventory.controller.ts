@@ -26,8 +26,16 @@ const purchaseSchema = z.object({
  *     responses:
  *       200:
  *         description: Lista de insumos registrados
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/InsumoListResponse'
  *       500:
  *         description: Error interno del servidor
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  */
 inventoryRouter.get("/", (_req: Request, res: Response) => {
   try {
@@ -49,27 +57,26 @@ inventoryRouter.get("/", (_req: Request, res: Response) => {
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             required:
- *               - insumoId
- *               - cantidad
- *               - costoTotal
- *             properties:
- *               insumoId:
- *                 type: string
- *               cantidad:
- *                 type: number
- *                 example: 10
- *               costoTotal:
- *                 type: number
- *                 example: 500
+ *             $ref: '#/components/schemas/PurchaseRequest'
  *     responses:
  *       201:
  *         description: Compra registrada
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/PurchaseResponse'
  *       400:
  *         description: Error de validación o negocio
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  *       500:
  *         description: Error interno del servidor
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  */
 inventoryRouter.post("/purchase", (req: Request, res: Response) => {
   const parsed = purchaseSchema.safeParse(req.body);

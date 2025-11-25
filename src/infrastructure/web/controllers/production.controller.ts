@@ -30,23 +30,26 @@ const productionSchema = z.object({
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             required:
- *               - recetaId
- *               - cantidad
- *             properties:
- *               recetaId:
- *                 type: string
- *               cantidad:
- *                 type: integer
- *                 example: 5
+ *             $ref: '#/components/schemas/ProductionRequest'
  *     responses:
  *       201:
  *         description: Producción registrada
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ProductionResponse'
  *       400:
  *         description: Error de validación o negocio
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  *       500:
  *         description: Error interno del servidor
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  */
 productionRouter.post("/", (req: Request, res: Response) => {
   const parsed = productionSchema.safeParse(req.body);
@@ -75,8 +78,16 @@ productionRouter.post("/", (req: Request, res: Response) => {
  *     responses:
  *       200:
  *         description: Listado de recetas
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/RecetaListResponse'
  *       500:
  *         description: Error interno del servidor
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  */
 productionRouter.get("/recipes", (_req: Request, res: Response) => {
   try {
