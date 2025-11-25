@@ -44,6 +44,41 @@ const upsertRecetaSchema = z.object({
 
 /**
  * @swagger
+ * /api/production/history:
+ *   get:
+ *     summary: Obtener historial de órdenes de producción
+ *     tags: [Production]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Historial de producción
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/ProductionResponse'
+ */
+productionRouter.get(
+  "/history",
+  authenticateJWT,
+  authorizeRoles(Role.ADMIN),
+  (_req: Request, res: Response) => {
+    try {
+      const data = productionService.obtenerHistorial();
+      return res.status(200).json({ data });
+    } catch (error) {
+      return handleControllerError(error, res);
+    }
+  }
+);
+
+/**
+ * @swagger
  * /api/production:
  *   post:
  *     summary: Registrar un lote de producción

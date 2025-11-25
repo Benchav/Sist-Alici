@@ -88,8 +88,3 @@ configRouter.put("/", authenticateJWT, authorizeRoles(Role.ADMIN), (req: Request
 });
 
 export { configRouter };
-import { Router, type Request, type Response } from "express";
-import { z } from "zod";
-import { InMemoryDatabase } from "../../database/in-memory-db";
-import { Role } from "../../../core/entities/usuario.entity";
-limport { authenticateJWT, authorizeRoles } from "../middlewares/auth.middleware";

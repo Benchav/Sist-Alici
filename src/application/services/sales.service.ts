@@ -19,12 +19,29 @@ export class SalesService {
     return this.db.config.tasaCambio ?? 1;
   }
 
-  public obtenerHistorial(): Venta[] {
-    return [...this.db.sales].sort((a, b) => {
-      const fechaA = new Date(a.fecha ?? 0).getTime();
-      const fechaB = new Date(b.fecha ?? 0).getTime();
-      return fechaB - fechaA;
-    });
+  public obtenerHistorial(desde?: Date, hasta?: Date): Venta[] {
+    const desdeMs = desde?.getTime();
+    const hastaMs = hasta?.getTime();
+
+    return this.db.sales
+      .filter((venta) => {
+        const fechaVenta = new Date(venta.fecha ?? 0).getTime();
+        if (Number.isNaN(fechaVenta)) {
+          return false;
+        }
+        if (typeof desdeMs === "number" && fechaVenta < desdeMs) {
+          return false;
+        }
+        if (typeof hastaMs === "number" && fechaVenta > hastaMs) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const fechaA = new Date(a.fecha ?? 0).getTime();
+        const fechaB = new Date(b.fecha ?? 0).getTime();
+        return fechaB - fechaA;
+      });
   }
 
   public obtenerVentaPorId(id: string): Venta {

@@ -44,6 +44,39 @@ const checkoutSchema = z.object({
     .nonempty("Debe registrar al menos un pago.")
 });
 
+const parseDateRange = (query: Request["query"]): { from?: Date; to?: Date } => {
+  const normalize = (value: unknown): string | undefined => {
+    if (Array.isArray(value)) {
+      value = value[0];
+    }
+    if (typeof value !== "string") {
+      return undefined;
+    }
+    const trimmed = value.trim();
+    return trimmed.length ? trimmed : undefined;
+  };
+
+  const parseParam = (raw: string | undefined, label: string): Date | undefined => {
+    if (!raw) {
+      return undefined;
+    }
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) {
+      throw new Error(`El parámetro ${label} debe ser una fecha ISO válida.`);
+    }
+    return date;
+  };
+
+  const from = parseParam(normalize(query.from), "from");
+  const to = parseParam(normalize(query.to), "to");
+
+  if (from && to && from.getTime() > to.getTime()) {
+    throw new Error("El parámetro from debe ser anterior o igual a to.");
+  }
+
+  return { from, to };
+};
+
 /**
  * @swagger
  * /api/sales/report/excel:
@@ -52,6 +85,21 @@ const checkoutSchema = z.object({
  *     tags: [Sales]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: from
+ *         required: false
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         description: Fecha inicial en formato ISO (inclusiva)
+ *       - in: query
+ *         name: to
+ *         required: false
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         description: Fecha final en formato ISO (inclusiva)
  *     responses:
  *       200:
  *         description: Archivo Excel generado
@@ -60,9 +108,10 @@ salesRouter.get(
   "/report/excel",
   authenticateJWT,
   authorizeRoles(Role.ADMIN),
-  async (_req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
     try {
-      const ventas = salesService.obtenerHistorial();
+      const { from, to } = parseDateRange(req.query);
+      const ventas = salesService.obtenerHistorial(from, to);
       const buffer = await excelService.generarReporteVentas(ventas);
       res.setHeader(
         "Content-Type",
@@ -119,6 +168,21 @@ salesRouter.get(
  *     tags: [Sales]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: from
+ *         required: false
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         description: Fecha inicial en formato ISO (inclusiva)
+ *       - in: query
+ *         name: to
+ *         required: false
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         description: Fecha final en formato ISO (inclusiva)
  *     responses:
  *       200:
  *         description: Historial de ventas en orden descendente
@@ -131,9 +195,10 @@ salesRouter.get(
   "/",
   authenticateJWT,
   authorizeRoles(Role.ADMIN, Role.CAJERO),
-  (_req: Request, res: Response) => {
+  (req: Request, res: Response) => {
     try {
-      const data = salesService.obtenerHistorial();
+      const { from, to } = parseDateRange(req.query);
+      const data = salesService.obtenerHistorial(from, to);
       return res.status(200).json({ data });
     } catch (error) {
       return handleControllerError(error, res);

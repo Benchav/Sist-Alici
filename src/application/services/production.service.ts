@@ -28,6 +28,12 @@ export class ProductionService {
   private readonly db = InMemoryDatabase.getInstance();
   private readonly historial: ProductionRecord[] = [];
 
+  public obtenerHistorial(): ProductionRecord[] {
+    return [...this.historial].sort(
+      (a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()
+    );
+  }
+
   public listarRecetas(): Receta[] {
     return this.db.recipes.map((receta) => ({
       ...receta,
