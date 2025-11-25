@@ -4,6 +4,10 @@ import type { Insumo } from "../../core/entities/types";
 export class InventoryService {
   private readonly db = InMemoryDatabase.getInstance();
 
+  public listarInsumos(): Insumo[] {
+    return this.db.ingredients.map((insumo) => ({ ...insumo }));
+  }
+
   public registrarCompra(insumoId: string, cantidad: number, costoTotal: number): Insumo {
     if (cantidad <= 0) {
       throw new Error("La cantidad de compra debe ser mayor a cero.");

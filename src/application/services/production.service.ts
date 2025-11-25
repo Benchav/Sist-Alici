@@ -17,6 +17,13 @@ export class ProductionService {
   private readonly db = InMemoryDatabase.getInstance();
   private readonly historial: ProductionRecord[] = [];
 
+  public listarRecetas(): Receta[] {
+    return this.db.recipes.map((receta) => ({
+      ...receta,
+      items: receta.items.map((item) => ({ ...item }))
+    }));
+  }
+
   public registrarProduccion(recetaId: string, cantidadProducida: number) {
     if (cantidadProducida <= 0) {
       throw new Error("La cantidad producida debe ser mayor a cero.");
