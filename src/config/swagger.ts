@@ -269,6 +269,21 @@ const swaggerOptions: Options = {
             cambio: { type: "number" }
           }
         },
+        SalesHistoryResponse: {
+          type: "object",
+          properties: {
+            data: {
+              type: "array",
+              items: { $ref: "#/components/schemas/Venta" }
+            }
+          }
+        },
+        SalesDetailResponse: {
+          type: "object",
+          properties: {
+            data: { $ref: "#/components/schemas/Venta" }
+          }
+        },
         ErrorResponse: {
           type: "object",
           properties: {
