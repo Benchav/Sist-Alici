@@ -1,6 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { InventoryService } from "../../../application/services/inventory.service";
+import { Role } from "../../../core/entities/usuario.entity";
+import { authenticateJWT, authorizeRoles } from "../middlewares/auth.middleware";
 
 /**
  * @swagger
@@ -37,7 +39,7 @@ const purchaseSchema = z.object({
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-inventoryRouter.get("/", (_req: Request, res: Response) => {
+inventoryRouter.get("/", authenticateJWT, authorizeRoles(Role.ADMIN, Role.PANADERO, Role.CAJERO), (_req: Request, res: Response) => {
   try {
     const data = inventoryService.listarInsumos();
     return res.status(200).json({ data });
@@ -78,7 +80,11 @@ inventoryRouter.get("/", (_req: Request, res: Response) => {
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-inventoryRouter.post("/purchase", (req: Request, res: Response) => {
+inventoryRouter.post(
+  "/purchase",
+  authenticateJWT,
+  authorizeRoles(Role.ADMIN, Role.PANADERO),
+  (req: Request, res: Response) => {
   const parsed = purchaseSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
@@ -87,14 +93,15 @@ inventoryRouter.post("/purchase", (req: Request, res: Response) => {
     });
   }
 
-  try {
-    const { insumoId, cantidad, costoTotal } = parsed.data;
-    const data = inventoryService.registrarCompra(insumoId, cantidad, costoTotal);
-    return res.status(201).json({ data });
-  } catch (error) {
-    return handleControllerError(error, res);
+    try {
+      const { insumoId, cantidad, costoTotal } = parsed.data;
+      const data = inventoryService.registrarCompra(insumoId, cantidad, costoTotal);
+      return res.status(201).json({ data });
+    } catch (error) {
+      return handleControllerError(error, res);
+    }
   }
-});
+);
 
 const handleControllerError = (error: unknown, res: Response) => {
   if (error instanceof Error) {
