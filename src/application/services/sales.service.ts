@@ -14,6 +14,39 @@ export class SalesService {
     this.tasaCambioBase = config?.tasaCambio ?? 1;
   }
 
+  public obtenerHistorial(): Venta[] {
+    return [...this.db.sales].sort((a, b) => {
+      const fechaA = new Date(a.fecha ?? 0).getTime();
+      const fechaB = new Date(b.fecha ?? 0).getTime();
+      return fechaB - fechaA;
+    });
+  }
+
+  public obtenerVentaPorId(id: string): Venta {
+    const venta = this.db.sales.find((item) => item.id === id);
+    if (!venta) {
+      throw new Error("Venta no encontrada.");
+    }
+    return venta;
+  }
+
+  public anularVenta(id: string): Venta {
+    const venta = this.obtenerVentaPorId(id);
+
+    venta.items.forEach((item) => {
+      const producto = this.db.products.find((prod) => prod.id === item.productoId) as Producto | undefined;
+      if (!producto) {
+        throw new Error(`Producto ${item.productoId} no existe en inventario.`);
+      }
+      producto.stockDisponible += item.cantidad;
+    });
+
+    const index = this.db.sales.findIndex((item) => item.id === id);
+    this.db.sales.splice(index, 1);
+
+    return venta;
+  }
+
   public procesarVenta(
     items: { productoId: string; cantidad: number }[],
     pagos: DetallePago[]
