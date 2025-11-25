@@ -1,4 +1,13 @@
+import {
+	seedConfig,
+	seedIngredients,
+	seedProducts,
+	seedRecipes,
+	seedSales,
+	seedUsers
+} from "../../core/data/seed-data";
 import type { Identifiable } from "../../core/entities/common";
+import type { SystemConfig } from "../../core/entities/config.entity";
 import type { Insumo } from "../../core/entities/insumo.entity";
 import type { Producto } from "../../core/entities/producto.entity";
 import type { Receta } from "../../core/entities/receta.entity";
@@ -13,8 +22,16 @@ export class InMemoryDatabase {
 	public readonly products: Producto[] = [];
 	public readonly recipes: Receta[] = [];
 	public readonly sales: Venta[] = [];
+	public config: SystemConfig = seedConfig;
 
-	private constructor() {}
+	private constructor() {
+		this.users.push(...seedUsers);
+		this.ingredients.push(...seedIngredients);
+		this.products.push(...seedProducts);
+		this.recipes.push(...seedRecipes);
+		this.sales.push(...seedSales);
+		this.config = { ...seedConfig };
+	}
 
 	public static getInstance(): InMemoryDatabase {
 		if (!InMemoryDatabase.instance) {
