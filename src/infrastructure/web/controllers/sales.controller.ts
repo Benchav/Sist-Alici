@@ -42,6 +42,108 @@ const checkoutSchema = z.object({
 
 /**
  * @swagger
+ * /api/sales:
+ *   get:
+ *     summary: Listar historial de ventas
+ *     tags: [Sales]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Historial de ventas en orden descendente
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SalesHistoryResponse'
+ */
+salesRouter.get(
+  "/",
+  authenticateJWT,
+  authorizeRoles(Role.ADMIN, Role.CAJERO),
+  (_req: Request, res: Response) => {
+    try {
+      const data = salesService.obtenerHistorial();
+      return res.status(200).json({ data });
+    } catch (error) {
+      return handleControllerError(error, res);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/sales/{id}:
+ *   get:
+ *     summary: Obtener detalle de una venta específica
+ *     tags: [Sales]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Venta encontrada
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SalesDetailResponse'
+ */
+salesRouter.get(
+  "/:id",
+  authenticateJWT,
+  authorizeRoles(Role.ADMIN, Role.CAJERO),
+  (req: Request, res: Response) => {
+    try {
+      const data = salesService.obtenerVentaPorId(req.params.id);
+      return res.status(200).json({ data });
+    } catch (error) {
+      return handleControllerError(error, res);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/sales/{id}:
+ *   delete:
+ *     summary: Anular una venta y revertir inventario
+ *     tags: [Sales]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Venta anulada correctamente
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SalesDetailResponse'
+ */
+salesRouter.delete(
+  "/:id",
+  authenticateJWT,
+  authorizeRoles(Role.ADMIN),
+  (req: Request, res: Response) => {
+    try {
+      const data = salesService.anularVenta(req.params.id);
+      return res.status(200).json({ data });
+    } catch (error) {
+      return handleControllerError(error, res);
+    }
+  }
+);
+
+/**
+ * @swagger
  * /api/sales/checkout:
  *   post:
  *     summary: Procesar una venta con múltiples pagos
