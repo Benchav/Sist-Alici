@@ -1,11 +1,9 @@
-import type {
-	Identifiable,
-	Insumo,
-	Producto,
-	Receta,
-	Usuario,
-	Venta
-} from "../../core/entities/types";
+import type { Identifiable } from "../../core/entities/common";
+import type { Insumo } from "../../core/entities/insumo.entity";
+import type { Producto } from "../../core/entities/producto.entity";
+import type { Receta } from "../../core/entities/receta.entity";
+import type { Usuario } from "../../core/entities/usuario.entity";
+import type { Venta } from "../../core/entities/venta.entity";
 
 export class InMemoryDatabase {
 	private static instance: InMemoryDatabase;

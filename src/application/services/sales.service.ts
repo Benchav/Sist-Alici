@@ -1,14 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { InMemoryDatabase } from "../../infrastructure/database/in-memory-db";
-import type {
-  Producto,
-  SystemConfig,
-  Venta,
-  VentaItem,
-  VentaPago
-} from "../../core/entities/types";
+import type { SystemConfig } from "../../core/entities/config.entity";
+import type { Producto } from "../../core/entities/producto.entity";
+import type { DetallePago, Venta, VentaItem } from "../../core/entities/venta.entity";
 
-export type DetallePago = VentaPago;
+export type { DetallePago } from "../../core/entities/venta.entity";
 
 export class SalesService {
   private readonly db = InMemoryDatabase.getInstance();

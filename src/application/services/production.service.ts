@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { InMemoryDatabase } from "../../infrastructure/database/in-memory-db";
-import type { Insumo, Producto, Receta } from "../../core/entities/types";
+import type { Insumo } from "../../core/entities/insumo.entity";
+import type { Producto } from "../../core/entities/producto.entity";
+import type { Receta } from "../../core/entities/receta.entity";
 
 interface ProductionRecord {
   id: string;

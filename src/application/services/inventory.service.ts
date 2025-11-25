@@ -1,5 +1,5 @@
 import { InMemoryDatabase } from "../../infrastructure/database/in-memory-db";
-import type { Insumo } from "../../core/entities/types";
+import type { Insumo } from "../../core/entities/insumo.entity";
 
 export class InventoryService {
   private readonly db = InMemoryDatabase.getInstance();
