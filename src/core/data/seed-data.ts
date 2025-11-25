@@ -2,13 +2,15 @@ import type { SystemConfig } from "../entities/config.entity";
 import type { Insumo } from "../entities/insumo.entity";
 import type { Producto } from "../entities/producto.entity";
 import type { Receta } from "../entities/receta.entity";
-import type { Usuario } from "../entities/usuario.entity";
+import { Role, type Usuario } from "../entities/usuario.entity";
 import type { Venta } from "../entities/venta.entity";
 
+const DEFAULT_PASSWORD_HASH = "$2b$10$tSPWEkXQUh6GezwAOprsiOzUFoWqfpwImqr218onD6cT9zJwTg7Eq";
+
 export const seedUsers: Usuario[] = [
-  { id: "USR-ADMIN-0001", nombre: "Juan Gerente", rol: "ADMIN" },
-  { id: "USR-PAN-0001", nombre: "Pedro Pan", rol: "PANADERO" },
-  { id: "USR-CAJ-0001", nombre: "Ana Caja", rol: "CAJERO" }
+  { id: "USR-ADMIN-0001", username: "admin", nombre: "Juan Gerente", rol: Role.ADMIN, passwordHash: DEFAULT_PASSWORD_HASH },
+  { id: "USR-PAN-0001", username: "panadero", nombre: "Pedro Pan", rol: Role.PANADERO, passwordHash: DEFAULT_PASSWORD_HASH },
+  { id: "USR-CAJ-0001", username: "cajero", nombre: "Ana Caja", rol: Role.CAJERO, passwordHash: DEFAULT_PASSWORD_HASH }
 ];
 
 export const seedIngredients: Insumo[] = [
