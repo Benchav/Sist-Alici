@@ -21,6 +21,27 @@ const productionSchema = z.object({
     .positive("La cantidad debe ser mayor a cero")
 });
 
+const productoSchema = z.object({
+  nombre: z.string().min(3, "El nombre debe tener al menos 3 caracteres"),
+  stockDisponible: z.number().nonnegative("El stock no puede ser negativo").optional(),
+  precioUnitario: z.number().nonnegative("El precio unitario no puede ser negativo").optional(),
+  precioVenta: z.number().nonnegative("El precio de venta no puede ser negativo").optional()
+});
+
+const updateProductoSchema = productoSchema.partial();
+
+const recetaItemSchema = z.object({
+  insumoId: z.string().min(1, "insumoId es requerido"),
+  cantidad: z.number().positive("La cantidad debe ser mayor a cero")
+});
+
+const upsertRecetaSchema = z.object({
+  id: z.string().min(1).optional(),
+  productoId: z.string().min(1, "productoId es requerido"),
+  costoManoObra: z.number().nonnegative("El costo de mano de obra no puede ser negativo").optional(),
+  items: z.array(recetaItemSchema).min(1, "Debe proporcionar al menos un insumo")
+});
+
 /**
  * @swagger
  * /api/production:
@@ -80,6 +101,147 @@ productionRouter.post(
 
 /**
  * @swagger
+ * /api/production/products:
+ *   get:
+ *     summary: Listar productos disponibles
+ *     tags: [Production]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Listado de productos
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ProductoListResponse'
+ */
+productionRouter.get(
+  "/products",
+  authenticateJWT,
+  authorizeRoles(Role.ADMIN, Role.PANADERO, Role.CAJERO),
+  (_req: Request, res: Response) => {
+    try {
+      const data = productionService.listarProductos();
+      return res.status(200).json({ data });
+    } catch (error) {
+      return handleControllerError(error, res);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/production/products:
+ *   post:
+ *     summary: Registrar un nuevo producto
+ *     tags: [Production]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/CrearProductoRequest'
+ *     responses:
+ *       201:
+ *         description: Producto creado
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ProductoResponse'
+ */
+productionRouter.post("/products", authenticateJWT, authorizeRoles(Role.ADMIN), (req: Request, res: Response) => {
+  const parsed = productoSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Error de validación",
+      details: parsed.error.flatten()
+    });
+  }
+
+  try {
+    const data = productionService.crearProducto(parsed.data);
+    return res.status(201).json({ data });
+  } catch (error) {
+    return handleControllerError(error, res);
+  }
+});
+
+/**
+ * @swagger
+ * /api/production/products/{id}:
+ *   put:
+ *     summary: Actualizar un producto
+ *     tags: [Production]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/ActualizarProductoRequest'
+ *     responses:
+ *       200:
+ *         description: Producto actualizado
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ProductoResponse'
+ */
+productionRouter.put("/products/:id", authenticateJWT, authorizeRoles(Role.ADMIN), (req: Request, res: Response) => {
+  const parsed = updateProductoSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Error de validación",
+      details: parsed.error.flatten()
+    });
+  }
+
+  try {
+    const data = productionService.actualizarProducto(req.params.id, parsed.data);
+    return res.status(200).json({ data });
+  } catch (error) {
+    return handleControllerError(error, res);
+  }
+});
+
+/**
+ * @swagger
+ * /api/production/products/{id}:
+ *   delete:
+ *     summary: Eliminar un producto
+ *     tags: [Production]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       204:
+ *         description: Producto eliminado
+ */
+productionRouter.delete("/products/:id", authenticateJWT, authorizeRoles(Role.ADMIN), (req: Request, res: Response) => {
+  try {
+    productionService.eliminarProducto(req.params.id);
+    return res.status(204).send();
+  } catch (error) {
+    return handleControllerError(error, res);
+  }
+});
+
+/**
+ * @swagger
  * /api/production/recipes:
  *   get:
  *     summary: Listar recetas disponibles
@@ -107,6 +269,50 @@ productionRouter.get(
   (_req: Request, res: Response) => {
     try {
       const data = productionService.listarRecetas();
+      return res.status(200).json({ data });
+    } catch (error) {
+      return handleControllerError(error, res);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/production/recipes:
+ *   post:
+ *     summary: Crear o actualizar una receta
+ *     tags: [Production]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/UpsertRecetaRequest'
+ *     responses:
+ *       200:
+ *         description: Receta actualizada o creada correctamente
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/RecetaResponse'
+ */
+productionRouter.post(
+  "/recipes",
+  authenticateJWT,
+  authorizeRoles(Role.ADMIN),
+  (req: Request, res: Response) => {
+    const parsed = upsertRecetaSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Error de validación",
+        details: parsed.error.flatten()
+      });
+    }
+
+    try {
+      const data = productionService.upsertReceta(parsed.data);
       return res.status(200).json({ data });
     } catch (error) {
       return handleControllerError(error, res);

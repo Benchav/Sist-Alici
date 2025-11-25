@@ -43,6 +43,25 @@ const swaggerOptions: Options = {
             }
           ]
         },
+        InsumoRequest: {
+          type: "object",
+          required: ["nombre", "unidad"],
+          properties: {
+            nombre: { type: "string", example: "Harina integral" },
+            unidad: { type: "string", example: "kg" },
+            stock: { type: "number", example: 20 },
+            costoPromedio: { type: "number", example: 550 }
+          }
+        },
+        InsumoUpdateRequest: {
+          allOf: [{ $ref: "#/components/schemas/InsumoRequest" }]
+        },
+        InsumoResponse: {
+          type: "object",
+          properties: {
+            data: { $ref: "#/components/schemas/Insumo" }
+          }
+        },
         PurchaseRequest: {
           type: "object",
           required: ["insumoId", "cantidad", "costoTotal"],
@@ -99,6 +118,12 @@ const swaggerOptions: Options = {
             }
           }
         },
+        RecetaResponse: {
+          type: "object",
+          properties: {
+            data: { $ref: "#/components/schemas/Receta" }
+          }
+        },
         ProductionRequest: {
           type: "object",
           required: ["recetaId", "cantidad"],
@@ -122,6 +147,61 @@ const swaggerOptions: Options = {
                 costoTotal: { type: "number" },
                 fecha: { type: "string", format: "date-time" }
               }
+            }
+          }
+        },
+        Producto: {
+          allOf: [
+            { $ref: "#/components/schemas/Identifiable" },
+            {
+              type: "object",
+              properties: {
+                nombre: { type: "string" },
+                stockDisponible: { type: "number" },
+                precioUnitario: { type: "number" },
+                precioVenta: { type: "number" }
+              }
+            }
+          ]
+        },
+        CrearProductoRequest: {
+          type: "object",
+          required: ["nombre"],
+          properties: {
+            nombre: { type: "string" },
+            stockDisponible: { type: "number" },
+            precioUnitario: { type: "number" },
+            precioVenta: { type: "number" }
+          }
+        },
+        ActualizarProductoRequest: {
+          allOf: [{ $ref: "#/components/schemas/CrearProductoRequest" }]
+        },
+        ProductoResponse: {
+          type: "object",
+          properties: {
+            data: { $ref: "#/components/schemas/Producto" }
+          }
+        },
+        ProductoListResponse: {
+          type: "object",
+          properties: {
+            data: {
+              type: "array",
+              items: { $ref: "#/components/schemas/Producto" }
+            }
+          }
+        },
+        UpsertRecetaRequest: {
+          type: "object",
+          required: ["productoId", "items"],
+          properties: {
+            id: { type: "string", nullable: true },
+            productoId: { type: "string" },
+            costoManoObra: { type: "number" },
+            items: {
+              type: "array",
+              items: { $ref: "#/components/schemas/RecetaItem" }
             }
           }
         },
@@ -221,6 +301,31 @@ const swaggerOptions: Options = {
           properties: {
             token: { type: "string" },
             user: { $ref: "#/components/schemas/UserSummary" }
+          }
+        },
+        AuthRegisterRequest: {
+          type: "object",
+          required: ["username", "nombre", "password", "rol"],
+          properties: {
+            username: { type: "string" },
+            nombre: { type: "string" },
+            password: { type: "string" },
+            rol: { type: "string", enum: ["ADMIN", "PANADERO", "CAJERO"] }
+          }
+        },
+        AuthUserResponse: {
+          type: "object",
+          properties: {
+            data: { $ref: "#/components/schemas/UserSummary" }
+          }
+        },
+        AuthUserListResponse: {
+          type: "object",
+          properties: {
+            data: {
+              type: "array",
+              items: { $ref: "#/components/schemas/UserSummary" }
+            }
           }
         }
       }
