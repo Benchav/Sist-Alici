@@ -1,6 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { ProductionService } from "../../../application/services/production.service";
+import { Role } from "../../../core/entities/usuario.entity";
+import { authenticateJWT, authorizeRoles } from "../middlewares/auth.middleware";
 
 /**
  * @swagger
@@ -25,6 +27,8 @@ const productionSchema = z.object({
  *   post:
  *     summary: Registrar un lote de producción
  *     tags: [Production]
+ *     security:
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -51,7 +55,11 @@ const productionSchema = z.object({
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-productionRouter.post("/", (req: Request, res: Response) => {
+productionRouter.post(
+  "/",
+  authenticateJWT,
+  authorizeRoles(Role.ADMIN, Role.PANADERO),
+  (req: Request, res: Response) => {
   const parsed = productionSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
@@ -60,14 +68,15 @@ productionRouter.post("/", (req: Request, res: Response) => {
     });
   }
 
-  try {
-    const { recetaId, cantidad } = parsed.data;
-    const data = productionService.registrarProduccion(recetaId, cantidad);
-    return res.status(201).json({ data });
-  } catch (error) {
-    return handleControllerError(error, res);
+    try {
+      const { recetaId, cantidad } = parsed.data;
+      const data = productionService.registrarProduccion(recetaId, cantidad);
+      return res.status(201).json({ data });
+    } catch (error) {
+      return handleControllerError(error, res);
+    }
   }
-});
+);
 
 /**
  * @swagger
@@ -75,6 +84,8 @@ productionRouter.post("/", (req: Request, res: Response) => {
  *   get:
  *     summary: Listar recetas disponibles
  *     tags: [Production]
+ *     security:
+ *       - bearerAuth: []
  *     responses:
  *       200:
  *         description: Listado de recetas
@@ -89,14 +100,19 @@ productionRouter.post("/", (req: Request, res: Response) => {
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-productionRouter.get("/recipes", (_req: Request, res: Response) => {
-  try {
-    const data = productionService.listarRecetas();
-    return res.status(200).json({ data });
-  } catch (error) {
-    return handleControllerError(error, res);
+productionRouter.get(
+  "/recipes",
+  authenticateJWT,
+  authorizeRoles(Role.ADMIN, Role.PANADERO),
+  (_req: Request, res: Response) => {
+    try {
+      const data = productionService.listarRecetas();
+      return res.status(200).json({ data });
+    } catch (error) {
+      return handleControllerError(error, res);
+    }
   }
-});
+);
 
 const handleControllerError = (error: unknown, res: Response) => {
   if (error instanceof Error) {

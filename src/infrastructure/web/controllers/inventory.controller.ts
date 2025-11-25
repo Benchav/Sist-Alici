@@ -25,6 +25,8 @@ const purchaseSchema = z.object({
  *   get:
  *     summary: Listar insumos disponibles
  *     tags: [Inventory]
+ *     security:
+ *       - bearerAuth: []
  *     responses:
  *       200:
  *         description: Lista de insumos registrados
@@ -54,6 +56,8 @@ inventoryRouter.get("/", authenticateJWT, authorizeRoles(Role.ADMIN, Role.PANADE
  *   post:
  *     summary: Registrar compra de insumo
  *     tags: [Inventory]
+ *     security:
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:

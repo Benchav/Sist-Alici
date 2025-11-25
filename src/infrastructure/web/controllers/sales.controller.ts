@@ -1,6 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { SalesService } from "../../../application/services/sales.service";
+import { Role } from "../../../core/entities/usuario.entity";
+import { authenticateJWT, authorizeRoles } from "../middlewares/auth.middleware";
 
 /**
  * @swagger
@@ -44,6 +46,8 @@ const checkoutSchema = z.object({
  *   post:
  *     summary: Procesar una venta con múltiples pagos
  *     tags: [Sales]
+ *     security:
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -70,7 +74,11 @@ const checkoutSchema = z.object({
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-salesRouter.post("/checkout", (req: Request, res: Response) => {
+salesRouter.post(
+  "/checkout",
+  authenticateJWT,
+  authorizeRoles(Role.ADMIN, Role.CAJERO),
+  (req: Request, res: Response) => {
   const parsed = checkoutSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
@@ -79,14 +87,15 @@ salesRouter.post("/checkout", (req: Request, res: Response) => {
     });
   }
 
-  try {
-    const { items, pagos } = parsed.data;
-    const { venta, cambio } = salesService.procesarVenta(items, pagos);
-    return res.status(201).json({ data: venta, cambio });
-  } catch (error) {
-    return handleControllerError(error, res);
+    try {
+      const { items, pagos } = parsed.data;
+      const { venta, cambio } = salesService.procesarVenta(items, pagos);
+      return res.status(201).json({ data: venta, cambio });
+    } catch (error) {
+      return handleControllerError(error, res);
+    }
   }
-});
+);
 
 const handleControllerError = (error: unknown, res: Response) => {
   if (error instanceof Error) {

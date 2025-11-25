@@ -15,6 +15,13 @@ const swaggerOptions: Options = {
       }
     ],
     components: {
+      securitySchemes: {
+        bearerAuth: {
+          type: "http",
+          scheme: "bearer",
+          bearerFormat: "JWT"
+        }
+      },
       schemas: {
         Identifiable: {
           type: "object",
@@ -190,6 +197,30 @@ const swaggerOptions: Options = {
               type: "object",
               nullable: true
             }
+          }
+        },
+        UserSummary: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            nombre: { type: "string" },
+            username: { type: "string" },
+            rol: { type: "string", enum: ["ADMIN", "PANADERO", "CAJERO"] }
+          }
+        },
+        AuthLoginRequest: {
+          type: "object",
+          required: ["username", "password"],
+          properties: {
+            username: { type: "string", example: "admin" },
+            password: { type: "string", example: "123456" }
+          }
+        },
+        AuthLoginResponse: {
+          type: "object",
+          properties: {
+            token: { type: "string" },
+            user: { $ref: "#/components/schemas/UserSummary" }
           }
         }
       }
