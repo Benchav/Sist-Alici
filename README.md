@@ -122,11 +122,6 @@ También existe un script local (`npm run seed:api`) que invoca la API desplegad
 - `PdfService`: genera facturas descargables (`GET /api/sales/:id/pdf`).
 - `ExcelService`: exporta ventas filtradas a XLSX (`GET /api/sales/report/excel`).
 
-## Roadmap sugerido
-1. Añadir pruebas automatizadas (unitarias + integración con Supertest).
-2. Incorporar logging estructurado (Pino) y herramientas de observabilidad.
-3. Configurar CI/CD para lint + test antes de cada deploy.
-4. Extender seeds automatizados para entornos de staging.
 
 ---
 **Autor**: [Joshua Chávez](https://joshuachavl.vercel.app)
