@@ -1,6 +1,6 @@
 # SIST-ALICI ERP API
 
-API productiva para el ERP de Panadería SIST-ALICI ejecutada en Node.js/TypeScript, con persistencia en Turso (LibSQL) y despliegue serverless en Vercel. Centraliza inventario, producción, ventas, configuración y reportes con seguridad JWT y documentación Swagger auto-generada.
+API productiva para el ERP de Panadería SIST-ALICI ejecutada en Node.js/TypeScript, con persistencia en **Turso (LibSQL)** y despliegue serverless en **Vercel** (`https://sist-alici.vercel.app`). Centraliza inventario, producción, ventas, configuración y reportes con seguridad JWT y documentación Swagger auto-generada.
 
 ## Características principales
 - **Arquitectura modular** separando entidades, servicios, controladores, reportes y middlewares.
