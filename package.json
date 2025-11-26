@@ -8,8 +8,7 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
-    "lint": "tsc --noEmit",
-    "seed:api": "tsx src/scripts/seed-api.ts"
+    "lint": "tsc --noEmit"
   },
   "keywords": [
     "erp",

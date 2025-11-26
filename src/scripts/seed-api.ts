@@ -73,7 +73,6 @@ async function seedUsers(token: string): Promise<Usuario[]> {
     { username: `panadero_${RUN_SUFFIX}_01`, nombre: "Luis Obrero", rol: Role.PANADERO, password: "P4n@123" },
     { username: `panadero_${RUN_SUFFIX}_02`, nombre: "Maria Amasijo", rol: Role.PANADERO, password: "P4n@123" },
     { username: `cajero_${RUN_SUFFIX}_01`, nombre: "Ana Cobros", rol: Role.CAJERO, password: "C4j@123" },
-    { username: `cajero_${RUN_SUFFIX}_02`, nombre: "Pedro Caja", rol: Role.CAJERO, password: "C4j@123" },
     { username: `admin_${RUN_SUFFIX}_01`, nombre: "Lucia Control", rol: Role.ADMIN, password: "Adm1n#123" },
     { username: `admin_${RUN_SUFFIX}_02`, nombre: "Carlos Supervisor", rol: Role.ADMIN, password: "Adm1n#123" }
   ];
@@ -98,7 +97,6 @@ async function seedInsumos(token: string): Promise<Insumo[]> {
     { nombre: "Harina Suprema", unidad: "kg", stock: 500, costoPromedio: 32.5 },
     { nombre: "Azúcar Morena", unidad: "kg", stock: 320, costoPromedio: 27.8 },
     { nombre: "Levadura Dorada", unidad: "kg", stock: 120, costoPromedio: 95.4 },
-    { nombre: "Mantequilla Artesanal", unidad: "kg", stock: 140, costoPromedio: 110.0 },
     { nombre: "Huevos de Campo", unidad: "caja", stock: 90, costoPromedio: 210.35 },
     { nombre: "Leche Entera Pasteurizada", unidad: "lt", stock: 260, costoPromedio: 28.15 }
   ];
@@ -124,7 +122,6 @@ async function seedProductos(token: string): Promise<Producto[]> {
     { nombre: `Baguette Mediterránea ${RUN_SUFFIX}`, stockDisponible: 0, precioUnitario: 42, precioVenta: 68 },
     { nombre: `Croissant Mantequilla ${RUN_SUFFIX}`, stockDisponible: 0, precioUnitario: 55, precioVenta: 85 },
     { nombre: `Pastel Cacao Intenso ${RUN_SUFFIX}`, stockDisponible: 0, precioUnitario: 180, precioVenta: 260 },
-    { nombre: `Galleta Avena Chips ${RUN_SUFFIX}`, stockDisponible: 0, precioUnitario: 25, precioVenta: 40 },
     { nombre: `Pan Integral Semillas ${RUN_SUFFIX}`, stockDisponible: 0, precioUnitario: 45, precioVenta: 70 }
   ];
 
@@ -153,8 +150,8 @@ async function seedRecetas(token: string, productos: Producto[], insumos: Insumo
       costoManoObra: 140,
       items: [
         { insumoNombre: "Harina Suprema", cantidad: 1.2 },
-        { insumoNombre: "Mantequilla Artesanal", cantidad: 0.4 },
-        { insumoNombre: "Leche Entera Pasteurizada", cantidad: 0.6 }
+        { insumoNombre: "Leche Entera Pasteurizada", cantidad: 0.6 },
+        { insumoNombre: "Huevos de Campo", cantidad: 0.3 }
       ]
     },
     {
@@ -171,7 +168,7 @@ async function seedRecetas(token: string, productos: Producto[], insumos: Insumo
       costoManoObra: 180,
       items: [
         { insumoNombre: "Harina Suprema", cantidad: 1.1 },
-        { insumoNombre: "Mantequilla Artesanal", cantidad: 0.5 },
+        { insumoNombre: "Levadura Dorada", cantidad: 0.05 },
         { insumoNombre: "Huevos de Campo", cantidad: 0.4 }
       ]
     },
@@ -187,15 +184,6 @@ async function seedRecetas(token: string, productos: Producto[], insumos: Insumo
     },
     {
       productoNombre: productos[4].nombre,
-      costoManoObra: 90,
-      items: [
-        { insumoNombre: "Harina Suprema", cantidad: 0.6 },
-        { insumoNombre: "Azúcar Morena", cantidad: 0.4 },
-        { insumoNombre: "Leche Entera Pasteurizada", cantidad: 0.2 }
-      ]
-    },
-    {
-      productoNombre: productos[5].nombre,
       costoManoObra: 135,
       items: [
         { insumoNombre: "Harina Suprema", cantidad: 1.3 },
@@ -240,7 +228,7 @@ async function seedRecetas(token: string, productos: Producto[], insumos: Insumo
 }
 
 async function seedProduccion(token: string, recetas: Receta[]): Promise<void> {
-  const lotes = [15, 18, 22, 20, 30, 25];
+  const lotes = [15, 18, 22, 20, 25];
   console.log("Registrando lotes de producción...");
   for (let i = 0; i < recetas.length; i++) {
     const receta = recetas[i];
@@ -260,7 +248,13 @@ async function fetchProductos(token: string): Promise<Producto[]> {
     method: "GET",
     token
   });
-  return response.data;
+
+  const filtered = response.data.filter((producto) => producto.nombre.includes(RUN_SUFFIX));
+  if (filtered.length < 5) {
+    throw new Error("No se encontraron los 5 productos sembrados en esta ejecución.");
+  }
+
+  return filtered;
 }
 
 async function seedVentas(token: string): Promise<Venta[]> {
@@ -271,7 +265,7 @@ async function seedVentas(token: string): Promise<Venta[]> {
     {
       items: [
         { nombre: productos[0].nombre, cantidad: 5 },
-        { nombre: productos[4].nombre, cantidad: 12 }
+        { nombre: productos[3].nombre, cantidad: 3 }
       ],
       pagos: [
         { moneda: "NIO" as const, coverage: 1.1 }
@@ -287,8 +281,7 @@ async function seedVentas(token: string): Promise<Venta[]> {
     },
     {
       items: [
-        { nombre: productos[2].nombre, cantidad: 8 },
-        { nombre: productos[3].nombre, cantidad: 3 }
+        { nombre: productos[2].nombre, cantidad: 8 }
       ],
       pagos: [
         { moneda: "NIO" as const, coverage: 0.6 },
@@ -297,7 +290,7 @@ async function seedVentas(token: string): Promise<Venta[]> {
     },
     {
       items: [
-        { nombre: productos[5].nombre, cantidad: 10 }
+        { nombre: productos[4].nombre, cantidad: 10 }
       ],
       pagos: [
         { moneda: "NIO" as const, coverage: 1.05 }
@@ -311,15 +304,6 @@ async function seedVentas(token: string): Promise<Venta[]> {
       pagos: [
         { moneda: "USD" as const, coverage: 0.8, tasa: DEFAULT_TASA_CAMBIO },
         { moneda: "NIO" as const, coverage: 0.5 }
-      ]
-    },
-    {
-      items: [
-        { nombre: productos[3].nombre, cantidad: 2 },
-        { nombre: productos[4].nombre, cantidad: 15 }
-      ],
-      pagos: [
-        { moneda: "NIO" as const, coverage: 1.15 }
       ]
     }
   ];
@@ -397,3 +381,7 @@ async function main(): Promise<void> {
 }
 
 void main();
+
+
+// Note: This script seeds the API with initial data including users, insumos, productos, recetas, production batches, and sales.
+// correr npm run seed:api
