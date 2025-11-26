@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { Transaction } from "@libsql/client";
 import type { Insumo } from "../../core/entities/insumo.entity";
 import type { Producto } from "../../core/entities/producto.entity";
 import type { Receta } from "../../core/entities/receta.entity";
-import { getTursoClient } from "../../infrastructure/database/turso";
+import { centsToAmount, toCents } from "../../core/utils/currency";
+import { getTursoClient, withTursoTransaction } from "../../infrastructure/database/turso";
 
 interface ProductionRecord {
   id: string;
@@ -54,6 +54,11 @@ export class ProductionService {
     await this.findProductById(data.productoId);
     await this.ensureInsumosExist(data.items.map((item) => item.insumoId));
 
+    const costoManoObraSanitized =
+      data.costoManoObra === undefined || data.costoManoObra === null
+        ? null
+        : centsToAmount(toCents(data.costoManoObra));
+
     if (data.id) {
       await this.client.execute({
         sql: `UPDATE recetas
@@ -61,7 +66,7 @@ export class ProductionService {
               WHERE id = ?`,
         args: [
           data.productoId,
-          data.costoManoObra ?? null,
+          costoManoObraSanitized,
           JSON.stringify(data.items),
           data.id
         ]
@@ -73,14 +78,14 @@ export class ProductionService {
     await this.client.execute({
       sql: `INSERT INTO recetas (id, producto_id, costo_mano_obra, items)
             VALUES (?, ?, ?, ?)` ,
-      args: [id, data.productoId, data.costoManoObra ?? null, JSON.stringify(data.items)]
+      args: [id, data.productoId, costoManoObraSanitized, JSON.stringify(data.items)]
     });
 
     return {
       id,
       productoId: data.productoId,
       items: data.items,
-      costoManoObra: data.costoManoObra
+      costoManoObra: costoManoObraSanitized ?? undefined
     };
   }
 
@@ -163,7 +168,7 @@ export class ProductionService {
       throw new Error("La cantidad producida debe ser mayor a cero.");
     }
 
-    const record = await this.withTransaction(async (tx) => {
+    const record = await withTursoTransaction(async (tx) => {
       const receta = await this.fetchRecetaById(recetaId, tx);
       const producto = await this.fetchProductoById(receta.productoId, tx);
 
@@ -184,9 +189,13 @@ export class ProductionService {
         return { insumo, requerido };
       });
 
-      let costoIngredientes = 0;
+      const costoIngredientesCents = consumos.reduce((acc, { insumo, requerido }) => {
+        const unitCostCents = toCents(insumo.costoPromedio);
+        const totalInsumoCents = Math.round(requerido * unitCostCents);
+        return acc + totalInsumoCents;
+      }, 0);
+
       for (const { insumo, requerido } of consumos) {
-        costoIngredientes += requerido * insumo.costoPromedio;
         const nuevoStock = insumo.stock - requerido;
         await tx.execute({
           sql: "UPDATE insumos SET stock = ? WHERE id = ?",
@@ -200,37 +209,25 @@ export class ProductionService {
         args: [nuevoStockProducto, producto.id]
       });
 
-      const costoManoObra = receta.costoManoObra ?? 0;
-      const costoTotal = costoIngredientes + costoManoObra;
+      const costoManoObraCents = toCents(receta.costoManoObra ?? 0);
+      const costoTotalCents = costoIngredientesCents + costoManoObraCents;
 
       const registro: ProductionRecord = {
         id: randomUUID(),
         recetaId,
         productoId: producto.id,
         cantidadProducida,
-        costoIngredientes: Number(costoIngredientes.toFixed(4)),
-        costoManoObra: Number(costoManoObra.toFixed(4)),
-        costoTotal: Number(costoTotal.toFixed(4)),
+        costoIngredientes: centsToAmount(costoIngredientesCents),
+        costoManoObra: centsToAmount(costoManoObraCents),
+        costoTotal: centsToAmount(costoTotalCents),
         fecha: new Date().toISOString()
       };
 
       return registro;
-    });
+    }, this.client);
 
     this.historial.push(record);
     return record;
-  }
-
-  private async withTransaction<T>(handler: (tx: Transaction) => Promise<T>): Promise<T> {
-    const tx = await this.client.transaction();
-    try {
-      const result = await handler(tx);
-      await tx.commit();
-      return result;
-    } catch (error) {
-      await tx.rollback();
-      throw error;
-    }
   }
 
   private async fetchRecetaById(id: string, executor: SqlExecutor = this.client): Promise<Receta> {

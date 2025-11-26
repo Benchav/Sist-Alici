@@ -46,15 +46,6 @@ export class AuthService {
     const username = input.username.trim();
     const nombre = input.nombre.trim();
 
-    const { rows } = await this.client.execute({
-      sql: "SELECT 1 FROM usuarios WHERE LOWER(username) = LOWER(?)",
-      args: [username]
-    });
-
-    if (rows.length) {
-      throw new Error("El nombre de usuario ya está en uso.");
-    }
-
     const passwordHash = await hash(input.password, 10);
     const user: Usuario = {
       id: `USR-${randomUUID()}`,
@@ -64,11 +55,18 @@ export class AuthService {
       passwordHash
     };
 
-    await this.client.execute({
-      sql: `INSERT INTO usuarios (id, username, nombre, rol, password_hash)
-            VALUES (?, ?, ?, ?, ?)` ,
-      args: [user.id, user.username, user.nombre, user.rol, user.passwordHash]
-    });
+    try {
+      await this.client.execute({
+        sql: `INSERT INTO usuarios (id, username, nombre, rol, password_hash)
+              VALUES (?, ?, ?, ?, ?)` ,
+        args: [user.id, user.username, user.nombre, user.rol, user.passwordHash]
+      });
+    } catch (error) {
+      if (this.isUniqueUsernameError(error)) {
+        throw new Error("El nombre de usuario ya está en uso.");
+      }
+      throw error;
+    }
 
     return this.toSafeUser(user);
   }
@@ -135,5 +133,13 @@ export class AuthService {
       rol: user.rol,
       username: user.username
     };
+  }
+
+  private isUniqueUsernameError(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+
+    return /UNIQUE constraint failed: usuarios\.username/i.test(error.message);
   }
 }

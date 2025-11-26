@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { Transaction } from "@libsql/client";
 import type { SystemConfig } from "../../core/entities/config.entity";
 import type { Producto } from "../../core/entities/producto.entity";
 import type { DetallePago, Venta, VentaItem } from "../../core/entities/venta.entity";
-import { getTursoClient } from "../../infrastructure/database/turso";
+import { centsToAmount, toCents } from "../../core/utils/currency";
+import { getTursoClient, withTursoTransaction } from "../../infrastructure/database/turso";
 
 export type { DetallePago } from "../../core/entities/venta.entity";
 
@@ -52,7 +52,7 @@ export class SalesService {
   }
 
   public async anularVenta(id: string): Promise<Venta> {
-    return await this.withTransaction(async (tx) => {
+    return await withTursoTransaction(async (tx) => {
       const venta = await this.fetchVentaById(id, tx);
 
       if (venta.items.length) {
@@ -82,7 +82,7 @@ export class SalesService {
       });
 
       return venta;
-    });
+    }, this.client);
   }
 
   public async procesarVenta(
@@ -98,7 +98,7 @@ export class SalesService {
 
     const tasaCambioBase = await this.obtenerTasaCambio();
 
-    return await this.withTransaction(async (tx) => {
+    return await withTursoTransaction(async (tx) => {
       const pagosNormalizados = pagos.map((pago) => {
         const moneda = pago.moneda.trim().toUpperCase();
         if (moneda === "USD") {
@@ -127,18 +127,24 @@ export class SalesService {
             throw new Error(`El producto ${producto.nombre} no tiene precio definido.`);
           }
 
-          const subtotal = precioUnitario * item.cantidad;
-          return { producto, cantidad: item.cantidad, precioUnitario, subtotal };
+          const precioUnitarioCents = toCents(precioUnitario);
+          const subtotalCents = precioUnitarioCents * item.cantidad;
+          return {
+            producto,
+            cantidad: item.cantidad,
+            precioUnitario: centsToAmount(precioUnitarioCents),
+            subtotalCents
+          };
         })
       );
 
-      const totalVenta = detalles.reduce((acc, detalle) => acc + detalle.subtotal, 0);
-      const totalPagado = pagosNormalizados.reduce(
-        (acc, pago) => acc + this.convertirPagoANio(pago, tasaCambioBase),
+      const totalVentaCents = detalles.reduce((acc, detalle) => acc + detalle.subtotalCents, 0);
+      const totalPagadoCents = pagosNormalizados.reduce(
+        (acc, pago) => acc + this.convertirPagoACents(pago, tasaCambioBase),
         0
       );
 
-      if (totalPagado + Number.EPSILON < totalVenta) {
+      if (totalPagadoCents < totalVentaCents) {
         throw new Error("Pagos insuficientes para cubrir el total de la venta.");
       }
 
@@ -158,9 +164,10 @@ export class SalesService {
       }));
 
       const fechaVenta = new Date().toISOString();
+      const totalVenta = centsToAmount(totalVentaCents);
       const venta: Venta = {
         id: randomUUID(),
-        totalNIO: Number(totalVenta.toFixed(2)),
+        totalNIO: totalVenta,
         pagos: pagosNormalizados,
         items: ventaItems,
         fecha: fechaVenta
@@ -178,9 +185,10 @@ export class SalesService {
         ]
       });
 
-      const cambio = Number((totalPagado - totalVenta).toFixed(2));
+      const cambioCents = totalPagadoCents - totalVentaCents;
+      const cambio = centsToAmount(cambioCents);
       return { venta, cambio };
-    });
+    }, this.client);
   }
 
   private async obtenerTasaCambio(): Promise<number> {
@@ -210,18 +218,6 @@ export class SalesService {
             ON CONFLICT(key) DO NOTHING`,
       args: [String(tasaCambio)]
     });
-  }
-
-  private async withTransaction<T>(handler: (tx: Transaction) => Promise<T>): Promise<T> {
-    const tx = await this.client.transaction();
-    try {
-      const result = await handler(tx);
-      await tx.commit();
-      return result;
-    } catch (error) {
-      await tx.rollback();
-      throw error;
-    }
   }
 
   private async fetchVentaById(id: string, executor: SqlExecutor = this.client): Promise<Venta> {
@@ -322,7 +318,7 @@ export class SalesService {
     }
   }
 
-  private convertirPagoANio(pago: DetallePago, tasaCambioBase: number): number {
+  private convertirPagoACents(pago: DetallePago, tasaCambioBase: number): number {
     if (pago.cantidad <= 0) {
       throw new Error("Los pagos deben tener montos positivos.");
     }
@@ -333,9 +329,9 @@ export class SalesService {
       if (tasa <= 0) {
         throw new Error("La tasa de cambio debe ser mayor a cero.");
       }
-      return pago.cantidad * tasa;
+      return Math.round(pago.cantidad * tasa * 100);
     }
 
-    return pago.cantidad;
+    return toCents(pago.cantidad);
   }
 }

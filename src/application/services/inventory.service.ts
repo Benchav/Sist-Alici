@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { getTursoClient } from "../../infrastructure/database/turso";
 import type { Insumo } from "../../core/entities/insumo.entity";
+import { centsToAmount, toCents } from "../../core/utils/currency";
 
 type CreateInsumoInput = Pick<Insumo, "nombre" | "unidad"> & Partial<Pick<Insumo, "stock" | "costoPromedio">>;
 type UpdateInsumoInput = Partial<Omit<Insumo, "id">>;
@@ -89,16 +90,21 @@ export class InventoryService {
     const insumo = await this.findById(insumoId);
 
     const stockActual = insumo.stock;
-    const costoActual = insumo.costoPromedio;
     const nuevoStock = stockActual + cantidad;
 
-    const nuevoCostoPromedio =
-      nuevoStock === 0 ? 0 : ((stockActual * costoActual) + costoTotal) / nuevoStock;
+    if (nuevoStock <= 0) {
+      throw new Error("El stock resultante debe ser mayor a cero.");
+    }
+
+    const costoActualCents = toCents(insumo.costoPromedio);
+    const costoActualTotalCents = Math.round(stockActual * costoActualCents);
+    const costoTotalCents = toCents(costoTotal);
+    const nuevoCostoPromedioCents = Math.round((costoActualTotalCents + costoTotalCents) / nuevoStock);
 
     const actualizado: Insumo = {
       ...insumo,
       stock: nuevoStock,
-      costoPromedio: Number(nuevoCostoPromedio.toFixed(4))
+      costoPromedio: centsToAmount(nuevoCostoPromedioCents)
     };
 
     await this.client.execute({

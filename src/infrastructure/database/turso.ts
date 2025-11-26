@@ -1,4 +1,4 @@
-import { createClient, type Client } from "@libsql/client";
+import { createClient, type Client, type Transaction } from "@libsql/client";
 
 let tursoClient: Client | null = null;
 
@@ -20,4 +20,19 @@ export const getTursoClient = (): Client => {
 
   tursoClient = createClient({ url, authToken });
   return tursoClient;
+};
+
+export const withTursoTransaction = async <T>(
+  handler: (tx: Transaction) => Promise<T>,
+  client: Client = getTursoClient()
+): Promise<T> => {
+  const tx = await client.transaction();
+  try {
+    const result = await handler(tx);
+    await tx.commit();
+    return result;
+  } catch (error) {
+    await tx.rollback();
+    throw error;
+  }
 };
