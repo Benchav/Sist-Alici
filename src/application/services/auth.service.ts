@@ -19,8 +19,12 @@ interface RegisterUserInput {
 
 export class AuthService {
   private readonly client = getTursoClient();
-  private readonly jwtSecret = process.env.JWT_SECRET ?? "sist-alici-dev-secret";
+  private readonly jwtSecret: string;
   private readonly jwtExpiresIn = process.env.JWT_EXPIRES_IN ?? "8h";
+
+  constructor() {
+    this.jwtSecret = this.resolveJwtSecret();
+  }
 
   public async listUsers(): Promise<LoginResult["user"][]> {
     const result = await this.client.execute(
@@ -133,6 +137,14 @@ export class AuthService {
       rol: user.rol,
       username: user.username
     };
+  }
+
+  private resolveJwtSecret(): string {
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      throw new Error("Missing JWT_SECRET environment variable.");
+    }
+    return secret;
   }
 
   private isUniqueUsernameError(error: unknown): boolean {

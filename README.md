@@ -63,7 +63,7 @@ src/
 | Variable | Valor por defecto | Descripción |
 | --- | --- | --- |
 | `PORT` | `3000` | Puerto local (no se usa en Vercel). |
-| `JWT_SECRET` | `sist-alici-dev-secret` | Secreto para firmar tokens. |
+| `JWT_SECRET` | _obligatoria_ | Secreto para firmar tokens (define en `.env`/Vercel). |
 | `JWT_EXPIRES_IN` | `8h` | Duración del token JWT. |
 | `TASA_CAMBIO_BASE` | `36.6` (seed) | Sobrescribe la tasa usada al iniciar/checkout. |
 | `TURSO_DATABASE_URL` | _obligatoria_ | URL LibSQL provista por Turso. |
