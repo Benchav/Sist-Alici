@@ -1,129 +1,132 @@
 # SIST-ALICI ERP API
 
-API productiva para el ERP de Panadería SIST-ALICI ejecutada en Node.js/TypeScript, con persistencia en **Turso (LibSQL)** y despliegue serverless en **Vercel** (`https://sist-alici.vercel.app`). Centraliza inventario, producción, ventas, configuración y reportes con seguridad JWT y documentación Swagger auto-generada.
+Backend productivo que opera el ERP de la panadería SIST-ALICI. Está construido con Node.js + TypeScript, expone toda la funcionalidad vía Express y persiste datos en **Turso (LibSQL)**. El runtime final vive en **Vercel** (`https://sist-alici.vercel.app`) y aprovecha despliegues serverless para escalar bajo demanda.
 
-## Características principales
-- **Arquitectura modular** separando entidades, servicios, controladores, reportes y middlewares.
-- **Base de datos Turso (LibSQL)** con consultas parametrizadas y transacciones compartidas.
-- **Autenticación JWT basada en roles** (Admin, Panadero, Cajero) aplicada mediante middleware.
-- **Gestión de inventario** con CRUD de insumos y registro de compras.
-- **Módulo de producción** para recetas, productos, lotes de fabricación y registro histórico de costos.
-- **Módulo de ventas** con pagos en múltiples monedas, anulaciones, facturas PDF y reportes Excel con filtros de fecha.
-- **Módulo de configuración** para ajustar la tasa de cambio sin reiniciar el servidor.
-- **Documentación Swagger** disponible en `/api-docs` con esquemas de seguridad.
+## Resumen de capacidades
+- Arquitectura en capas (Core, Application, Infrastructure) con responsabilidades bien separadas.
+- Persistencia en Turso con un único cliente compartido y helper de transacciones (`withTursoTransaction`).
+- Autenticación JWT con roles (Admin, Panadero, Cajero) y middlewares reutilizables.
+- Flujos completos para inventario, producción y ventas (incluye pagos multi-moneda, reversas, PDF/Excel).
+- Configuración runtime (tasa de cambio) sin necesidad de reiniciar la API.
+- Documentación Swagger accesible en `/api-docs` con soporte para tokens Bearer.
 
-## Tecnologías
-- Node.js + TypeScript + Express 5
-- Zod para validación de solicitudes
-- JSON Web Tokens (`jsonwebtoken`) + `bcrypt`
-- `pdfkit` y `exceljs` para reportes
+## Stack principal
+- Node.js 20 + TypeScript + Express 5
+- Zod para validaciones y DTOs
+- JWT (`jsonwebtoken`) + `bcrypt` para seguridad
+- Turso / LibSQL (`@libsql/client`) como base de datos
+- PDFKit y ExcelJS para reportes
 - Swagger (`swagger-jsdoc`, `swagger-ui-express`)
-- Turso / LibSQL + `@libsql/client`
-- Vercel (`@vercel/node`) como target de despliegue
+- Vercel (`@vercel/node`) como plataforma de despliegue
 
-## Estructura del proyecto (extracto)
+## Estructura
 ```
 src/
-   app.ts                  # Configuración Express en modo reusable (sin listen)
-   index.ts                # Entry point para Vercel/Serverless
-  config/swagger.ts       # Swagger options & schema definitions
-  application/services/   # Core domain services (auth, inventory, production, sales)
+  app.ts              # Configuración de Express en modo reusable
+  index.ts            # Handler para Vercel (@vercel/node)
+  config/swagger.ts   # OpenAPI + componentes compartidos
+  application/services/
+    auth.service.ts
+    inventory.service.ts
+    production.service.ts
+    sales.service.ts
   infrastructure/
-      database/turso.ts     # Cliente compartido y helper de transacciones
-    reports/{pdf,excel}.service.ts
+    database/turso.ts # Cliente LibSQL + helper transaccional
+    reports/
+      excel.service.ts
+      pdf.service.ts
     web/controllers/*.ts
     web/middlewares/auth.middleware.ts
   core/
     entities/*.ts
     data/seed-data.ts
-      utils/currency.ts     # Helpers para operar montos en centavos
+    utils/currency.ts # Operaciones monetarias en centavos
 ```
 
 ## Puesta en marcha
-1. **Instalar dependencias**
+1. Instalar dependencias
    ```bash
    npm install
    ```
-2. **Ejecutar en desarrollo (hot-reload con tsx)**
+2. Desarrollo con hot reload
    ```bash
    npm run dev
    ```
-3. **Compilar y ejecutar el bundle para producción local**
+3. Build + ejecución local productiva
    ```bash
    npm run build
    npm start
    ```
-4. **Despliegue serverless (Vercel)**
+4. Despliegue en Vercel
    ```bash
    vercel
    vercel --prod
    ```
-4. **Documentación**: abrir `http://localhost:3000/api-docs` (o el puerto configurado).
+5. Documentación
+   - Local: `http://localhost:3000/api-docs`
+   - Producción: `https://sist-alici.vercel.app/api-docs`
+
 ## Variables de entorno
-| Variable | Valor por defecto | Descripción |
+| Variable | Requerida | Descripción |
 | --- | --- | --- |
-| `PORT` | `3000` | Puerto local (no se usa en Vercel). |
-| `JWT_SECRET` | _obligatoria_ | Secreto para firmar tokens (define en `.env`/Vercel). |
-| `JWT_EXPIRES_IN` | `8h` | Duración del token JWT. |
-| `TASA_CAMBIO_BASE` | `36.6` (seed) | Sobrescribe la tasa usada al iniciar/checkout. |
-| `TURSO_DATABASE_URL` | _obligatoria_ | URL LibSQL provista por Turso. |
-| `TURSO_AUTH_TOKEN` | _obligatoria_ | Token de autenticación Turso. |
+| `PORT` | No | Solo para ejecución local (default `3000`). |
+| `JWT_SECRET` | Sí | Clave para firmar tokens (debe definirse en `.env` y en Vercel). |
+| `JWT_EXPIRES_IN` | No | Tiempo de vida del token (`8h` por defecto). |
+| `TASA_CAMBIO_BASE` | No | Valor inicial de la tasa de cambio hasta que exista registro en BD. |
+| `TURSO_DATABASE_URL` | Sí | URL LibSQL provista por Turso. |
+| `TURSO_AUTH_TOKEN` | Sí | Token JWT que otorga Turso para acceder a la base. |
 
-_Los valores se leen con `dotenv` en `app.ts`. Ajusta `.env` según tus necesidades._
-
-## Scripts npm
+## Scripts disponibles
 | Script | Descripción |
 | --- | --- |
-| `npm run dev` | Inicia Express con tsx en modo observación. |
+| `npm run dev` | Dev server con `tsx --watch`. |
 | `npm run build` | Compila TypeScript a `dist/`. |
-| `npm start` | Ejecuta la app compilada (`dist/server.js`). |
-| `npm run lint` | Revisa tipos sin generar archivos. |
-| `vercel`, `vercel --prod` | Despliegue serverless (opcional). |
+| `npm start` | Arranca la versión compilada (`dist/server.js`). |
+| `npm run lint` | `tsc --noEmit` para validar tipos. |
+| `vercel` / `vercel --prod` | Deploy serverless (preprod / prod). |
 
 ## Autenticación y roles
-- Login vía `POST /api/auth/login` (credenciales en `seed-data.ts`, ej. `admin` / `123456`).
-- Usa el `token` retornado para autorizar (`Authorization: Bearer <token>`).
-- La verificación de roles ocurre en `auth.middleware.ts` (solo Admin puede actualizar config, exportar Excel o anular ventas).
+- `POST /api/auth/login` entrega JWT (usuarios base en `seed-data.ts`).
+- Middlewares `authenticateJWT` y `authorizeRoles` aplican seguridad granular.
+- Solo Admin puede registrar usuarios, modificar configuración y generar reportes.
 
-## Módulos del dominio
+## Módulos funcionales
 ### Inventario
-- CRUD para `Insumo` y registro de compras.
-- Endpoints en `inventory.controller.ts` (mutaciones restringidas a Admin).
+- CRUD completo de insumos y registro de compras (actualiza stock + costo promedio). 
+- Transacciones en centavos para evitar errores de coma flotante.
 
 ### Producción
-- CRUD de productos y recetas, registro de lotes y endpoint histórico `GET /api/production/history` (solo Admin).
-- `ProductionService` guarda el detalle de costos por lote.
+- Gestión de productos, recetas y lotes de fabricación.
+- Consume insumos en transacción, actualiza stock y calcula costos por lote.
 
 ### Ventas
-- Checkout con múltiples pagos, conversión según `tasaCambio`, anulaciones, filtros (`from`, `to`), facturas PDF (`GET /api/sales/{id}/pdf`) y exportación Excel (`GET /api/sales/report/excel`).
+- Checkout con múltiples pagos (NIO/USD) y cálculo seguro de cambio.
+- Historial filtrable (`from`, `to`), generación de factura PDF y reporte Excel.
+- Anulación revierte stock en transacción.
 
 ### Configuración
-- `GET /api/config`: consulta la configuración vigente.
-- `PUT /api/config`: Admin actualiza la tasa y afecta operaciones futuras al instante.
+- Lectura/actualización de la tasa de cambio sin reiniciar el servicio.
 
-## Usuarios semilla
-Definidos en `src/core/data/seed-data.ts` (hash de contraseña = `123456`). Además, existe un script temporal (`npm run seed:api`) que se usa localmente para poblar Turso durante QA (no se despliega).
+## Usuarios de prueba
+Definidos en `src/core/data/seed-data.ts` (contraseña `hash`).
+
 | Usuario | Rol |
 | --- | --- |
 | `admin` | ADMIN |
 | `panadero` | PANADERO |
 | `cajero` | CAJERO |
 
-Usa estas cuentas para pruebas inmediatas.
+También existe un script local (`npm run seed:api`) que invoca la API desplegada para poblar Turso con datos demo; se usa únicamente en QA y no forma parte del despliegue.
 
 ## Reportes
-- **Facturas PDF**: `PdfService` genera comprobantes con `pdfkit`.
-- **Reportes Excel**: `ExcelService` resume ventas (ID, fecha, total, pagado, cambio). Los filtros de fecha del endpoint se trasladan al archivo generado.
+- `PdfService`: genera facturas descargables (`GET /api/sales/:id/pdf`).
+- `ExcelService`: exporta ventas filtradas a XLSX (`GET /api/sales/report/excel`).
 
-## Consejos para Swagger
-- Swagger UI ya incluye el esquema Bearer. Haz clic en **Authorize** y pega tu token para probar endpoints protegidos.
-- Los esquemas (Inventory, Production, Sales, Auth, Config) se definen en `src/config/swagger.ts` para reutilización.
+## Roadmap sugerido
+1. Añadir pruebas automatizadas (unitarias + integración con Supertest).
+2. Incorporar logging estructurado (Pino) y herramientas de observabilidad.
+3. Configurar CI/CD para lint + test antes de cada deploy.
+4. Extender seeds automatizados para entornos de staging.
 
-## Próximos pasos sugeridos
-- Migrar la base en memoria a un motor persistente (PostgreSQL, Mongo, etc.).
-- Añadir pruebas automatizadas (unitarias e integración) para servicios y controladores.
-- Configurar CI para lint/build/test.
-
-## Autor
-- Nombre: **Joshua Chávez**
-- Portafolio: https://joshuachavl.vercel.app
+---
+**Autor**: [Joshua Chávez](https://joshuachavl.vercel.app)
