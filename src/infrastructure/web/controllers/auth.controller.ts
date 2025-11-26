@@ -133,9 +133,9 @@ authRouter.get(
   "/users",
   authenticateJWT,
   authorizeRoles(Role.ADMIN),
-  (_req: Request, res: Response) => {
+  async (_req: Request, res: Response) => {
     try {
-      const data = authService.listUsers();
+      const data = await authService.listUsers();
       return res.status(200).json({ data });
     } catch (error) {
       return res.status(400).json({ error: (error as Error).message });
@@ -165,9 +165,9 @@ authRouter.delete(
   "/users/:id",
   authenticateJWT,
   authorizeRoles(Role.ADMIN),
-  (req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
     try {
-      authService.deleteUser(req.params.id);
+      await authService.deleteUser(req.params.id);
       return res.status(204).send();
     } catch (error) {
       return res.status(400).json({ error: (error as Error).message });

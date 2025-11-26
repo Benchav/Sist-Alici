@@ -1,11 +1,13 @@
 import PDFDocument from "pdfkit";
 import type { Venta } from "../../core/entities/venta.entity";
-import { InMemoryDatabase } from "../database/in-memory-db";
+import { getTursoClient } from "../database/turso";
 
 export class PdfService {
-  private readonly db = InMemoryDatabase.getInstance();
+  private readonly client = getTursoClient();
 
   public async generarFactura(venta: Venta): Promise<Buffer> {
+    const nombres = await this.obtenerNombresProductos(venta);
+
     return await new Promise<Buffer>((resolve, reject) => {
       const doc = new PDFDocument({ margin: 50 });
       const buffers: Buffer[] = [];
@@ -23,8 +25,7 @@ export class PdfService {
       doc.fontSize(14).text("Detalle de Ítems");
       doc.moveDown(0.5);
       venta.items.forEach((item) => {
-        const producto = this.db.products.find((prod) => prod.id === item.productoId);
-        const nombre = producto?.nombre ?? item.productoId;
+        const nombre = nombres.get(item.productoId) ?? item.productoId;
         doc.fontSize(12).text(`${nombre}  | Cant: ${item.cantidad} x C$${item.precioUnitario.toFixed(2)}`);
       });
 
@@ -47,5 +48,26 @@ export class PdfService {
       doc.fontSize(10).text("Documento generado por SIST-ALICI ERP", { align: "center" });
       doc.end();
     });
+  }
+
+  private async obtenerNombresProductos(venta: Venta): Promise<Map<string, string>> {
+    const ids = Array.from(new Set(venta.items.map((item) => item.productoId)));
+    const map = new Map<string, string>();
+
+    if (!ids.length) {
+      return map;
+    }
+
+    const placeholders = ids.map(() => "?").join(",");
+    const { rows } = await this.client.execute({
+      sql: `SELECT id, nombre FROM productos WHERE id IN (${placeholders})`,
+      args: ids
+    });
+
+    rows.forEach((row) => {
+      map.set(String(row.id), String(row.nombre));
+    });
+
+    return map;
   }
 }

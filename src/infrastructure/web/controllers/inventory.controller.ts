@@ -51,14 +51,19 @@ const updateInsumoSchema = insumoBaseSchema.partial();
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-inventoryRouter.get("/", authenticateJWT, authorizeRoles(Role.ADMIN, Role.PANADERO, Role.CAJERO), (_req: Request, res: Response) => {
-  try {
-    const data = inventoryService.findAll();
-    return res.status(200).json({ data });
-  } catch (error) {
-    return handleControllerError(error, res);
+inventoryRouter.get(
+  "/",
+  authenticateJWT,
+  authorizeRoles(Role.ADMIN, Role.PANADERO, Role.CAJERO),
+  async (_req: Request, res: Response) => {
+    try {
+      const data = await inventoryService.findAll();
+      return res.status(200).json({ data });
+    } catch (error) {
+      return handleControllerError(error, res);
+    }
   }
-});
+);
 
 /**
  * @swagger
@@ -94,7 +99,7 @@ inventoryRouter.get("/", authenticateJWT, authorizeRoles(Role.ADMIN, Role.PANADE
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-inventoryRouter.post("/", authenticateJWT, authorizeRoles(Role.ADMIN), (req: Request, res: Response) => {
+inventoryRouter.post("/", authenticateJWT, authorizeRoles(Role.ADMIN), async (req: Request, res: Response) => {
   const parsed = createInsumoSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
@@ -104,7 +109,7 @@ inventoryRouter.post("/", authenticateJWT, authorizeRoles(Role.ADMIN), (req: Req
   }
 
   try {
-    const data = inventoryService.createInsumo(parsed.data);
+    const data = await inventoryService.createInsumo(parsed.data);
     return res.status(201).json({ data });
   } catch (error) {
     return handleControllerError(error, res);
@@ -151,7 +156,7 @@ inventoryRouter.post("/", authenticateJWT, authorizeRoles(Role.ADMIN), (req: Req
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-inventoryRouter.put("/:id", authenticateJWT, authorizeRoles(Role.ADMIN), (req: Request, res: Response) => {
+inventoryRouter.put("/:id", authenticateJWT, authorizeRoles(Role.ADMIN), async (req: Request, res: Response) => {
   const parsed = updateInsumoSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
@@ -161,7 +166,7 @@ inventoryRouter.put("/:id", authenticateJWT, authorizeRoles(Role.ADMIN), (req: R
   }
 
   try {
-    const data = inventoryService.updateInsumo(req.params.id, parsed.data);
+    const data = await inventoryService.updateInsumo(req.params.id, parsed.data);
     return res.status(200).json({ data });
   } catch (error) {
     return handleControllerError(error, res);
@@ -192,14 +197,19 @@ inventoryRouter.put("/:id", authenticateJWT, authorizeRoles(Role.ADMIN), (req: R
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-inventoryRouter.delete("/:id", authenticateJWT, authorizeRoles(Role.ADMIN), (req: Request, res: Response) => {
-  try {
-    inventoryService.deleteInsumo(req.params.id);
-    return res.status(204).send();
-  } catch (error) {
-    return handleControllerError(error, res);
+inventoryRouter.delete(
+  "/:id",
+  authenticateJWT,
+  authorizeRoles(Role.ADMIN),
+  async (req: Request, res: Response) => {
+    try {
+      await inventoryService.deleteInsumo(req.params.id);
+      return res.status(204).send();
+    } catch (error) {
+      return handleControllerError(error, res);
+    }
   }
-});
+);
 
 /**
  * @swagger
@@ -239,7 +249,7 @@ inventoryRouter.post(
   "/purchase",
   authenticateJWT,
   authorizeRoles(Role.ADMIN, Role.PANADERO),
-  (req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
   const parsed = purchaseSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
@@ -250,7 +260,7 @@ inventoryRouter.post(
 
     try {
       const { insumoId, cantidad, costoTotal } = parsed.data;
-      const data = inventoryService.registrarCompra(insumoId, cantidad, costoTotal);
+      const data = await inventoryService.registrarCompra(insumoId, cantidad, costoTotal);
       return res.status(201).json({ data });
     } catch (error) {
       return handleControllerError(error, res);

@@ -115,7 +115,7 @@ productionRouter.post(
   "/",
   authenticateJWT,
   authorizeRoles(Role.ADMIN, Role.PANADERO),
-  (req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
   const parsed = productionSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
@@ -126,7 +126,7 @@ productionRouter.post(
 
     try {
       const { recetaId, cantidad } = parsed.data;
-      const data = productionService.registrarProduccion(recetaId, cantidad);
+      const data = await productionService.registrarProduccion(recetaId, cantidad);
       return res.status(201).json({ data });
     } catch (error) {
       return handleControllerError(error, res);
@@ -154,9 +154,9 @@ productionRouter.get(
   "/products",
   authenticateJWT,
   authorizeRoles(Role.ADMIN, Role.PANADERO, Role.CAJERO),
-  (_req: Request, res: Response) => {
+  async (_req: Request, res: Response) => {
     try {
-      const data = productionService.listarProductos();
+      const data = await productionService.listarProductos();
       return res.status(200).json({ data });
     } catch (error) {
       return handleControllerError(error, res);
@@ -186,7 +186,7 @@ productionRouter.get(
  *             schema:
  *               $ref: '#/components/schemas/ProductoResponse'
  */
-productionRouter.post("/products", authenticateJWT, authorizeRoles(Role.ADMIN), (req: Request, res: Response) => {
+productionRouter.post("/products", authenticateJWT, authorizeRoles(Role.ADMIN), async (req: Request, res: Response) => {
   const parsed = productoSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
@@ -196,7 +196,7 @@ productionRouter.post("/products", authenticateJWT, authorizeRoles(Role.ADMIN), 
   }
 
   try {
-    const data = productionService.crearProducto(parsed.data);
+    const data = await productionService.crearProducto(parsed.data);
     return res.status(201).json({ data });
   } catch (error) {
     return handleControllerError(error, res);
@@ -231,7 +231,7 @@ productionRouter.post("/products", authenticateJWT, authorizeRoles(Role.ADMIN), 
  *             schema:
  *               $ref: '#/components/schemas/ProductoResponse'
  */
-productionRouter.put("/products/:id", authenticateJWT, authorizeRoles(Role.ADMIN), (req: Request, res: Response) => {
+productionRouter.put("/products/:id", authenticateJWT, authorizeRoles(Role.ADMIN), async (req: Request, res: Response) => {
   const parsed = updateProductoSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
@@ -241,7 +241,7 @@ productionRouter.put("/products/:id", authenticateJWT, authorizeRoles(Role.ADMIN
   }
 
   try {
-    const data = productionService.actualizarProducto(req.params.id, parsed.data);
+    const data = await productionService.actualizarProducto(req.params.id, parsed.data);
     return res.status(200).json({ data });
   } catch (error) {
     return handleControllerError(error, res);
@@ -266,9 +266,9 @@ productionRouter.put("/products/:id", authenticateJWT, authorizeRoles(Role.ADMIN
  *       204:
  *         description: Producto eliminado
  */
-productionRouter.delete("/products/:id", authenticateJWT, authorizeRoles(Role.ADMIN), (req: Request, res: Response) => {
+productionRouter.delete("/products/:id", authenticateJWT, authorizeRoles(Role.ADMIN), async (req: Request, res: Response) => {
   try {
-    productionService.eliminarProducto(req.params.id);
+    await productionService.eliminarProducto(req.params.id);
     return res.status(204).send();
   } catch (error) {
     return handleControllerError(error, res);
@@ -301,9 +301,9 @@ productionRouter.get(
   "/recipes",
   authenticateJWT,
   authorizeRoles(Role.ADMIN, Role.PANADERO),
-  (_req: Request, res: Response) => {
+  async (_req: Request, res: Response) => {
     try {
-      const data = productionService.listarRecetas();
+      const data = await productionService.listarRecetas();
       return res.status(200).json({ data });
     } catch (error) {
       return handleControllerError(error, res);
@@ -337,7 +337,7 @@ productionRouter.post(
   "/recipes",
   authenticateJWT,
   authorizeRoles(Role.ADMIN),
-  (req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
     const parsed = upsertRecetaSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({
@@ -347,7 +347,7 @@ productionRouter.post(
     }
 
     try {
-      const data = productionService.upsertReceta(parsed.data);
+      const data = await productionService.upsertReceta(parsed.data);
       return res.status(200).json({ data });
     } catch (error) {
       return handleControllerError(error, res);

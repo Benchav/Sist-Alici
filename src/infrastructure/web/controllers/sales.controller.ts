@@ -111,7 +111,7 @@ salesRouter.get(
   async (req: Request, res: Response) => {
     try {
       const { from, to } = parseDateRange(req.query);
-      const ventas = salesService.obtenerHistorial(from, to);
+      const ventas = await salesService.obtenerHistorial(from, to);
       const buffer = await excelService.generarReporteVentas(ventas);
       res.setHeader(
         "Content-Type",
@@ -149,7 +149,7 @@ salesRouter.get(
   authorizeRoles(Role.ADMIN, Role.CAJERO),
   async (req: Request, res: Response) => {
     try {
-      const venta = salesService.obtenerVentaPorId(req.params.id);
+      const venta = await salesService.obtenerVentaPorId(req.params.id);
       const buffer = await pdfService.generarFactura(venta);
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `attachment; filename="venta-${venta.id}.pdf"`);
@@ -195,10 +195,10 @@ salesRouter.get(
   "/",
   authenticateJWT,
   authorizeRoles(Role.ADMIN, Role.CAJERO),
-  (req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
     try {
       const { from, to } = parseDateRange(req.query);
-      const data = salesService.obtenerHistorial(from, to);
+      const data = await salesService.obtenerHistorial(from, to);
       return res.status(200).json({ data });
     } catch (error) {
       return handleControllerError(error, res);
@@ -232,9 +232,9 @@ salesRouter.get(
   "/:id",
   authenticateJWT,
   authorizeRoles(Role.ADMIN, Role.CAJERO),
-  (req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
     try {
-      const data = salesService.obtenerVentaPorId(req.params.id);
+      const data = await salesService.obtenerVentaPorId(req.params.id);
       return res.status(200).json({ data });
     } catch (error) {
       return handleControllerError(error, res);
@@ -268,9 +268,9 @@ salesRouter.delete(
   "/:id",
   authenticateJWT,
   authorizeRoles(Role.ADMIN),
-  (req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
     try {
-      const data = salesService.anularVenta(req.params.id);
+      const data = await salesService.anularVenta(req.params.id);
       return res.status(200).json({ data });
     } catch (error) {
       return handleControllerError(error, res);
@@ -316,7 +316,7 @@ salesRouter.post(
   "/checkout",
   authenticateJWT,
   authorizeRoles(Role.ADMIN, Role.CAJERO),
-  (req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
   const parsed = checkoutSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
@@ -327,7 +327,7 @@ salesRouter.post(
 
     try {
       const { items, pagos } = parsed.data;
-      const { venta, cambio } = salesService.procesarVenta(items, pagos);
+      const { venta, cambio } = await salesService.procesarVenta(items, pagos);
       return res.status(201).json({ data: venta, cambio });
     } catch (error) {
       return handleControllerError(error, res);

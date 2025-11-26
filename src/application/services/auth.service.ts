@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { sign, type SignOptions } from "jsonwebtoken";
 import type { JwtPayload } from "../../core/entities/auth";
 import { Role, type Usuario } from "../../core/entities/usuario.entity";
-import { InMemoryDatabase } from "../../infrastructure/database/in-memory-db";
+import { getTursoClient } from "../../infrastructure/database/turso";
 
 interface LoginResult {
   token: string;
@@ -18,55 +18,86 @@ interface RegisterUserInput {
 }
 
 export class AuthService {
-  private readonly db = InMemoryDatabase.getInstance();
+  private readonly client = getTursoClient();
   private readonly jwtSecret = process.env.JWT_SECRET ?? "sist-alici-dev-secret";
   private readonly jwtExpiresIn = process.env.JWT_EXPIRES_IN ?? "8h";
 
-  public listUsers(): LoginResult["user"][] {
-    return this.db.users.map((user) => this.toSafeUser(user));
+  public async listUsers(): Promise<LoginResult["user"][]> {
+    const result = await this.client.execute(
+      "SELECT id, username, nombre, rol FROM usuarios ORDER BY nombre"
+    );
+    return result.rows.map((row) => this.toSafeUser(this.mapRowToUsuario(row)));
   }
 
-  public findUserById(id: string): Usuario {
-    const user = this.db.users.find((item) => item.id === id);
-    if (!user) {
+  public async findUserById(id: string): Promise<Usuario> {
+    const { rows } = await this.client.execute({
+      sql: "SELECT id, username, nombre, rol, password_hash FROM usuarios WHERE id = ?",
+      args: [id]
+    });
+
+    if (!rows.length) {
       throw new Error("Usuario no encontrado.");
     }
-    return user;
+
+    return this.mapRowToUsuario(rows[0]);
   }
 
   public async registerUser(input: RegisterUserInput): Promise<LoginResult["user"]> {
-    const exists = this.db.users.some((user) => user.username.toLowerCase() === input.username.toLowerCase());
-    if (exists) {
+    const username = input.username.trim();
+    const nombre = input.nombre.trim();
+
+    const { rows } = await this.client.execute({
+      sql: "SELECT 1 FROM usuarios WHERE LOWER(username) = LOWER(?)",
+      args: [username]
+    });
+
+    if (rows.length) {
       throw new Error("El nombre de usuario ya está en uso.");
     }
 
     const passwordHash = await hash(input.password, 10);
-    const nuevo: Usuario = {
+    const user: Usuario = {
       id: `USR-${randomUUID()}`,
-      username: input.username.trim(),
-      nombre: input.nombre.trim(),
+      username,
+      nombre,
       rol: input.rol,
       passwordHash
     };
 
-    this.db.users.push(nuevo);
-    return this.toSafeUser(nuevo);
+    await this.client.execute({
+      sql: `INSERT INTO usuarios (id, username, nombre, rol, password_hash)
+            VALUES (?, ?, ?, ?, ?)` ,
+      args: [user.id, user.username, user.nombre, user.rol, user.passwordHash]
+    });
+
+    return this.toSafeUser(user);
   }
 
-  public deleteUser(id: string): void {
-    const index = this.db.users.findIndex((user) => user.id === id);
-    if (index === -1) {
+  public async deleteUser(id: string): Promise<void> {
+    const result = await this.client.execute({
+      sql: "DELETE FROM usuarios WHERE id = ?",
+      args: [id]
+    });
+
+    if ((result.rowsAffected ?? 0) === 0) {
       throw new Error("Usuario no encontrado.");
     }
-    this.db.users.splice(index, 1);
   }
 
   public async login(username: string, password: string): Promise<LoginResult> {
-    const user = this.db.users.find((u) => u.username.toLowerCase() === username.toLowerCase());
-    if (!user) {
+    const { rows } = await this.client.execute({
+      sql: `SELECT id, username, nombre, rol, password_hash
+            FROM usuarios
+            WHERE LOWER(username) = LOWER(?)
+            LIMIT 1`,
+      args: [username]
+    });
+
+    if (!rows.length) {
       throw new Error("Credenciales inválidas.");
     }
 
+    const user = this.mapRowToUsuario(rows[0]);
     const isValid = await compare(password, user.passwordHash);
     if (!isValid) {
       throw new Error("Credenciales inválidas.");
@@ -84,6 +115,16 @@ export class AuthService {
     return {
       token,
       user: this.toSafeUser(user)
+    };
+  }
+
+  private mapRowToUsuario(row: Record<string, unknown>): Usuario {
+    return {
+      id: String(row.id),
+      username: String(row.username),
+      nombre: String(row.nombre),
+      rol: row.rol as Role,
+      passwordHash: String(row.password_hash)
     };
   }
 

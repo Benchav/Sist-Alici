@@ -1,56 +1,84 @@
 import { randomUUID } from "node:crypto";
-import { InMemoryDatabase } from "../../infrastructure/database/in-memory-db";
+import { getTursoClient } from "../../infrastructure/database/turso";
 import type { Insumo } from "../../core/entities/insumo.entity";
 
 type CreateInsumoInput = Pick<Insumo, "nombre" | "unidad"> & Partial<Pick<Insumo, "stock" | "costoPromedio">>;
 type UpdateInsumoInput = Partial<Omit<Insumo, "id">>;
 
 export class InventoryService {
-  private readonly db = InMemoryDatabase.getInstance();
+  private readonly client = getTursoClient();
 
-  public findAll(): Insumo[] {
-    return this.db.ingredients.map((insumo) => ({ ...insumo }));
+  public async findAll(): Promise<Insumo[]> {
+    const { rows } = await this.client.execute(
+      "SELECT id, nombre, unidad, stock, costo_promedio FROM insumos ORDER BY nombre"
+    );
+    return rows.map((row) => this.mapRow(row));
   }
 
-  public listarInsumos(): Insumo[] {
+  public listarInsumos(): Promise<Insumo[]> {
     return this.findAll();
   }
 
-  public findById(id: string): Insumo {
-    const insumo = this.db.ingredients.find((item) => item.id === id);
-    if (!insumo) {
+  public async findById(id: string): Promise<Insumo> {
+    const { rows } = await this.client.execute({
+      sql: "SELECT id, nombre, unidad, stock, costo_promedio FROM insumos WHERE id = ?",
+      args: [id]
+    });
+
+    if (!rows.length) {
       throw new Error("Insumo no encontrado.");
     }
-    return insumo;
+
+    return this.mapRow(rows[0]);
   }
 
-  public createInsumo(input: CreateInsumoInput): Insumo {
-    const nuevo: Insumo = {
+  public async createInsumo(input: CreateInsumoInput): Promise<Insumo> {
+    const insumo: Insumo = {
       id: `INS-${randomUUID()}`,
       nombre: input.nombre.trim(),
       unidad: input.unidad.trim(),
       stock: input.stock ?? 0,
       costoPromedio: input.costoPromedio ?? 0
     };
-    this.db.ingredients.push(nuevo);
-    return nuevo;
-  }
 
-  public updateInsumo(id: string, data: UpdateInsumoInput): Insumo {
-    const insumo = this.findById(id);
-    Object.assign(insumo, data);
+    await this.client.execute({
+      sql: `INSERT INTO insumos (id, nombre, unidad, stock, costo_promedio)
+            VALUES (?, ?, ?, ?, ?)` ,
+      args: [insumo.id, insumo.nombre, insumo.unidad, insumo.stock, insumo.costoPromedio]
+    });
+
     return insumo;
   }
 
-  public deleteInsumo(id: string): void {
-    const index = this.db.ingredients.findIndex((item) => item.id === id);
-    if (index === -1) {
-      throw new Error("Insumo no encontrado.");
-    }
-    this.db.ingredients.splice(index, 1);
+  public async updateInsumo(id: string, data: UpdateInsumoInput): Promise<Insumo> {
+    const current = await this.findById(id);
+    const updated: Insumo = {
+      ...current,
+      ...data
+    };
+
+    await this.client.execute({
+      sql: `UPDATE insumos
+            SET nombre = ?, unidad = ?, stock = ?, costo_promedio = ?
+            WHERE id = ?`,
+      args: [updated.nombre, updated.unidad, updated.stock, updated.costoPromedio, id]
+    });
+
+    return updated;
   }
 
-  public registrarCompra(insumoId: string, cantidad: number, costoTotal: number): Insumo {
+  public async deleteInsumo(id: string): Promise<void> {
+    const result = await this.client.execute({
+      sql: "DELETE FROM insumos WHERE id = ?",
+      args: [id]
+    });
+
+    if ((result.rowsAffected ?? 0) === 0) {
+      throw new Error("Insumo no encontrado.");
+    }
+  }
+
+  public async registrarCompra(insumoId: string, cantidad: number, costoTotal: number): Promise<Insumo> {
     if (cantidad <= 0) {
       throw new Error("La cantidad de compra debe ser mayor a cero.");
     }
@@ -58,7 +86,7 @@ export class InventoryService {
       throw new Error("El costo total de la compra no puede ser negativo.");
     }
 
-    const insumo = this.findById(insumoId);
+    const insumo = await this.findById(insumoId);
 
     const stockActual = insumo.stock;
     const costoActual = insumo.costoPromedio;
@@ -67,9 +95,27 @@ export class InventoryService {
     const nuevoCostoPromedio =
       nuevoStock === 0 ? 0 : ((stockActual * costoActual) + costoTotal) / nuevoStock;
 
-    insumo.stock = nuevoStock;
-    insumo.costoPromedio = Number(nuevoCostoPromedio.toFixed(4));
+    const actualizado: Insumo = {
+      ...insumo,
+      stock: nuevoStock,
+      costoPromedio: Number(nuevoCostoPromedio.toFixed(4))
+    };
 
-    return insumo;
+    await this.client.execute({
+      sql: `UPDATE insumos SET stock = ?, costo_promedio = ? WHERE id = ?`,
+      args: [actualizado.stock, actualizado.costoPromedio, insumoId]
+    });
+
+    return actualizado;
+  }
+
+  private mapRow(row: Record<string, unknown>): Insumo {
+    return {
+      id: String(row.id),
+      nombre: String(row.nombre),
+      unidad: String(row.unidad),
+      stock: Number(row.stock ?? 0),
+      costoPromedio: Number(row.costo_promedio ?? 0)
+    };
   }
 }

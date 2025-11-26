@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { InMemoryDatabase } from "../../infrastructure/database/in-memory-db";
+import type { Transaction } from "@libsql/client";
 import type { Insumo } from "../../core/entities/insumo.entity";
 import type { Producto } from "../../core/entities/producto.entity";
 import type { Receta } from "../../core/entities/receta.entity";
+import { getTursoClient } from "../../infrastructure/database/turso";
 
 interface ProductionRecord {
   id: string;
@@ -15,7 +16,7 @@ interface ProductionRecord {
   fecha: string;
 }
 
-type CreateProductInput = Pick<Producto, "nombre"> & Partial<Omit<Producto, "id" | "nombre" >>;
+type CreateProductInput = Pick<Producto, "nombre"> & Partial<Omit<Producto, "id" | "nombre">>;
 type UpdateProductInput = Partial<Omit<Producto, "id">>;
 type UpsertRecetaInput = {
   id?: string;
@@ -24,8 +25,12 @@ type UpsertRecetaInput = {
   costoManoObra?: number;
 };
 
+type SqlExecutor = {
+  execute: (statement: string | { sql: string; args?: Array<string | number | null> }) => Promise<any>;
+};
+
 export class ProductionService {
-  private readonly db = InMemoryDatabase.getInstance();
+  private readonly client = getTursoClient();
   private readonly historial: ProductionRecord[] = [];
 
   public obtenerHistorial(): ProductionRecord[] {
@@ -34,136 +39,309 @@ export class ProductionService {
     );
   }
 
-  public listarRecetas(): Receta[] {
-    return this.db.recipes.map((receta) => ({
-      ...receta,
-      items: receta.items.map((item) => ({ ...item }))
-    }));
+  public async listarRecetas(): Promise<Receta[]> {
+    const { rows } = await this.client.execute(
+      "SELECT id, producto_id, costo_mano_obra, items FROM recetas ORDER BY id"
+    );
+    return rows.map((row) => this.mapRecetaRow(row));
   }
 
-  public findRecetaById(id: string): Receta {
-    const receta = this.db.recipes.find((item) => item.id === id);
-    if (!receta) {
-      throw new Error("Receta no encontrada.");
-    }
-    return receta;
+  public findRecetaById(id: string): Promise<Receta> {
+    return this.fetchRecetaById(id);
   }
 
-  public upsertReceta(data: UpsertRecetaInput): Receta {
-    this.findProductById(data.productoId);
-    data.items.forEach((item) => {
-      const insumo = this.db.ingredients.find((ing) => ing.id === item.insumoId);
-      if (!insumo) {
-        throw new Error(`Insumo ${item.insumoId} no encontrado.`);
-      }
-    });
+  public async upsertReceta(data: UpsertRecetaInput): Promise<Receta> {
+    await this.findProductById(data.productoId);
+    await this.ensureInsumosExist(data.items.map((item) => item.insumoId));
 
     if (data.id) {
-      const receta = this.findRecetaById(data.id);
-      Object.assign(receta, data);
-      return receta;
+      await this.client.execute({
+        sql: `UPDATE recetas
+              SET producto_id = ?, costo_mano_obra = ?, items = ?
+              WHERE id = ?`,
+        args: [
+          data.productoId,
+          data.costoManoObra ?? null,
+          JSON.stringify(data.items),
+          data.id
+        ]
+      });
+      return this.findRecetaById(data.id);
     }
 
-    const nueva: Receta = {
-      id: `REC-${randomUUID()}`,
+    const id = `REC-${randomUUID()}`;
+    await this.client.execute({
+      sql: `INSERT INTO recetas (id, producto_id, costo_mano_obra, items)
+            VALUES (?, ?, ?, ?)` ,
+      args: [id, data.productoId, data.costoManoObra ?? null, JSON.stringify(data.items)]
+    });
+
+    return {
+      id,
       productoId: data.productoId,
       items: data.items,
       costoManoObra: data.costoManoObra
     };
-    this.db.recipes.push(nueva);
-    return nueva;
   }
 
-  public listarProductos(): Producto[] {
-    return this.db.products.map((producto) => ({ ...producto }));
+  public async listarProductos(): Promise<Producto[]> {
+    const { rows } = await this.client.execute(
+      "SELECT id, nombre, stock_disponible, precio_unitario, precio_venta FROM productos ORDER BY nombre"
+    );
+    return rows.map((row) => this.mapProductoRow(row));
   }
 
-  public findProductById(id: string): Producto {
-    const producto = this.db.products.find((item) => item.id === id);
-    if (!producto) {
-      throw new Error("Producto no encontrado.");
-    }
-    return producto;
+  public findProductById(id: string): Promise<Producto> {
+    return this.fetchProductoById(id);
   }
 
-  public crearProducto(data: CreateProductInput): Producto {
-    const nuevo: Producto = {
+  public async crearProducto(data: CreateProductInput): Promise<Producto> {
+    const producto: Producto = {
       id: `PRD-${randomUUID()}`,
       nombre: data.nombre.trim(),
       stockDisponible: data.stockDisponible ?? 0,
       precioUnitario: data.precioUnitario,
       precioVenta: data.precioVenta
     };
-    this.db.products.push(nuevo);
-    return nuevo;
-  }
 
-  public actualizarProducto(id: string, data: UpdateProductInput): Producto {
-    const producto = this.findProductById(id);
-    Object.assign(producto, data);
+    await this.client.execute({
+      sql: `INSERT INTO productos (id, nombre, stock_disponible, precio_unitario, precio_venta)
+            VALUES (?, ?, ?, ?, ?)` ,
+      args: [
+        producto.id,
+        producto.nombre,
+        producto.stockDisponible,
+        producto.precioUnitario ?? null,
+        producto.precioVenta ?? null
+      ]
+    });
+
     return producto;
   }
 
-  public eliminarProducto(id: string): void {
-    const index = this.db.products.findIndex((item) => item.id === id);
-    if (index === -1) {
-      throw new Error("Producto no encontrado.");
-    }
-    this.db.products.splice(index, 1);
-    for (let i = this.db.recipes.length - 1; i >= 0; i--) {
-      if (this.db.recipes[i].productoId === id) {
-        this.db.recipes.splice(i, 1);
-      }
-    }
+  public async actualizarProducto(id: string, data: UpdateProductInput): Promise<Producto> {
+    const current = await this.findProductById(id);
+    const updated: Producto = {
+      ...current,
+      ...data
+    };
+
+    await this.client.execute({
+      sql: `UPDATE productos
+            SET nombre = ?, stock_disponible = ?, precio_unitario = ?, precio_venta = ?
+            WHERE id = ?`,
+      args: [
+        updated.nombre,
+        updated.stockDisponible,
+        updated.precioUnitario ?? null,
+        updated.precioVenta ?? null,
+        id
+      ]
+    });
+
+    return updated;
   }
 
-  public registrarProduccion(recetaId: string, cantidadProducida: number) {
+  public async eliminarProducto(id: string): Promise<void> {
+    const result = await this.client.execute({
+      sql: "DELETE FROM productos WHERE id = ?",
+      args: [id]
+    });
+
+    if ((result.rowsAffected ?? 0) === 0) {
+      throw new Error("Producto no encontrado.");
+    }
+
+    await this.client.execute({
+      sql: "DELETE FROM recetas WHERE producto_id = ?",
+      args: [id]
+    });
+  }
+
+  public async registrarProduccion(recetaId: string, cantidadProducida: number): Promise<ProductionRecord> {
     if (cantidadProducida <= 0) {
       throw new Error("La cantidad producida debe ser mayor a cero.");
     }
 
-    const receta = this.findRecetaById(recetaId);
+    const record = await this.withTransaction(async (tx) => {
+      const receta = await this.fetchRecetaById(recetaId, tx);
+      const producto = await this.fetchProductoById(receta.productoId, tx);
 
-    const consumos = receta.items.map((item) => {
-      const insumo = this.db.ingredients.find((ing) => ing.id === item.insumoId) as Insumo | undefined;
-      if (!insumo) {
-        throw new Error(`Insumo ${item.insumoId} no encontrado.`);
+      const insumoIds = receta.items.map((item) => item.insumoId);
+      const insumos = await this.fetchInsumosByIds(insumoIds, tx);
+
+      const consumos = receta.items.map((item) => {
+        const insumo = insumos.get(item.insumoId);
+        if (!insumo) {
+          throw new Error(`Insumo ${item.insumoId} no encontrado.`);
+        }
+
+        const requerido = item.cantidad * cantidadProducida;
+        if (insumo.stock < requerido) {
+          throw new Error(`Stock insuficiente para el insumo ${insumo.nombre}.`);
+        }
+
+        return { insumo, requerido };
+      });
+
+      let costoIngredientes = 0;
+      for (const { insumo, requerido } of consumos) {
+        costoIngredientes += requerido * insumo.costoPromedio;
+        const nuevoStock = insumo.stock - requerido;
+        await tx.execute({
+          sql: "UPDATE insumos SET stock = ? WHERE id = ?",
+          args: [nuevoStock, insumo.id]
+        });
       }
 
-      const requerido = item.cantidad * cantidadProducida;
-      if (insumo.stock < requerido) {
-        throw new Error(`Stock insuficiente para el insumo ${insumo.nombre}.`);
-      }
+      const nuevoStockProducto = producto.stockDisponible + cantidadProducida;
+      await tx.execute({
+        sql: "UPDATE productos SET stock_disponible = ? WHERE id = ?",
+        args: [nuevoStockProducto, producto.id]
+      });
 
-      return { insumo, requerido };
+      const costoManoObra = receta.costoManoObra ?? 0;
+      const costoTotal = costoIngredientes + costoManoObra;
+
+      const registro: ProductionRecord = {
+        id: randomUUID(),
+        recetaId,
+        productoId: producto.id,
+        cantidadProducida,
+        costoIngredientes: Number(costoIngredientes.toFixed(4)),
+        costoManoObra: Number(costoManoObra.toFixed(4)),
+        costoTotal: Number(costoTotal.toFixed(4)),
+        fecha: new Date().toISOString()
+      };
+
+      return registro;
     });
 
-    let costoIngredientes = 0;
-    consumos.forEach(({ insumo, requerido }) => {
-      costoIngredientes += requerido * insumo.costoPromedio;
-      insumo.stock -= requerido;
+    this.historial.push(record);
+    return record;
+  }
+
+  private async withTransaction<T>(handler: (tx: Transaction) => Promise<T>): Promise<T> {
+    const tx = await this.client.transaction();
+    try {
+      const result = await handler(tx);
+      await tx.commit();
+      return result;
+    } catch (error) {
+      await tx.rollback();
+      throw error;
+    }
+  }
+
+  private async fetchRecetaById(id: string, executor: SqlExecutor = this.client): Promise<Receta> {
+    const { rows } = await executor.execute({
+      sql: "SELECT id, producto_id, costo_mano_obra, items FROM recetas WHERE id = ?",
+      args: [id]
     });
 
-    const producto = this.findProductById(receta.productoId);
+    if (!rows.length) {
+      throw new Error("Receta no encontrada.");
+    }
 
-    producto.stockDisponible += cantidadProducida;
+    return this.mapRecetaRow(rows[0]);
+  }
 
-    const costoManoObra = receta.costoManoObra ?? 0;
-    const costoTotal = costoIngredientes + costoManoObra;
+  private async fetchProductoById(id: string, executor: SqlExecutor = this.client): Promise<Producto> {
+    const { rows } = await executor.execute({
+      sql: "SELECT id, nombre, stock_disponible, precio_unitario, precio_venta FROM productos WHERE id = ?",
+      args: [id]
+    });
 
-    const registro: ProductionRecord = {
-      id: randomUUID(),
-      recetaId,
-      productoId: producto.id,
-      cantidadProducida,
-      costoIngredientes: Number(costoIngredientes.toFixed(4)),
-      costoManoObra: Number(costoManoObra.toFixed(4)),
-      costoTotal: Number(costoTotal.toFixed(4)),
-      fecha: new Date().toISOString()
+    if (!rows.length) {
+      throw new Error("Producto no encontrado.");
+    }
+
+    return this.mapProductoRow(rows[0]);
+  }
+
+  private async ensureInsumosExist(ids: string[]): Promise<void> {
+    if (!ids.length) {
+      throw new Error("La receta debe incluir al menos un insumo.");
+    }
+
+    const placeholders = ids.map(() => "?").join(",");
+    const { rows } = await this.client.execute({
+      sql: `SELECT id FROM insumos WHERE id IN (${placeholders})`,
+      args: ids
+    });
+
+    if (rows.length !== new Set(ids).size) {
+      throw new Error("Uno o más insumos especificados no existen.");
+    }
+  }
+
+  private async fetchInsumosByIds(ids: string[], executor: SqlExecutor): Promise<Map<string, Insumo & { nombre: string }>> {
+    if (!ids.length) {
+      return new Map();
+    }
+
+    const placeholders = ids.map(() => "?").join(",");
+    const { rows } = await executor.execute({
+      sql: `SELECT id, nombre, unidad, stock, costo_promedio FROM insumos WHERE id IN (${placeholders})`,
+      args: ids
+    });
+
+    const map = new Map<string, Insumo & { nombre: string }>();
+    rows.forEach((row: Record<string, unknown>) => {
+      const insumo = this.mapInsumoRow(row);
+      map.set(insumo.id, insumo);
+    });
+    return map;
+  }
+
+  private mapRecetaRow(row: Record<string, unknown>): Receta {
+    return {
+      id: String(row.id),
+      productoId: String(row.producto_id),
+      costoManoObra:
+        row.costo_mano_obra !== null && row.costo_mano_obra !== undefined
+          ? Number(row.costo_mano_obra)
+          : undefined,
+      items: this.parseItems(row.items)
     };
+  }
 
-    this.historial.push(registro);
+  private mapProductoRow(row: Record<string, unknown>): Producto {
+    return {
+      id: String(row.id),
+      nombre: String(row.nombre),
+      stockDisponible: Number(row.stock_disponible ?? 0),
+      precioUnitario:
+        row.precio_unitario !== null && row.precio_unitario !== undefined
+          ? Number(row.precio_unitario)
+          : undefined,
+      precioVenta:
+        row.precio_venta !== null && row.precio_venta !== undefined
+          ? Number(row.precio_venta)
+          : undefined
+    };
+  }
 
-    return registro;
+  private mapInsumoRow(row: Record<string, unknown>): Insumo & { nombre: string } {
+    return {
+      id: String(row.id),
+      nombre: String(row.nombre),
+      unidad: String(row.unidad ?? ""),
+      stock: Number(row.stock ?? 0),
+      costoPromedio: Number(row.costo_promedio ?? 0)
+    };
+  }
+
+  private parseItems(value: unknown): Receta["items"] {
+    if (typeof value !== "string" || !value.trim()) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(value) as Receta["items"];
+      return parsed.map((item) => ({ ...item }));
+    } catch {
+      throw new Error("Formato inválido de items de receta.");
+    }
   }
 }
