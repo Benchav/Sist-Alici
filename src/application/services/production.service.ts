@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Insumo } from "../../core/entities/insumo.entity";
 import type { Producto } from "../../core/entities/producto.entity";
 import type { Receta } from "../../core/entities/receta.entity";
-import { centsToAmount, toCents } from "../../core/utils/currency";
+import { fromCents, toCents } from "../../core/utils/currency";
 import { getTursoClient, withTursoTransaction } from "../../infrastructure/database/turso";
 
 interface ProductionRecord {
@@ -57,7 +57,7 @@ export class ProductionService {
     const costoManoObraSanitized =
       data.costoManoObra === undefined || data.costoManoObra === null
         ? null
-        : centsToAmount(toCents(data.costoManoObra));
+        : fromCents(toCents(data.costoManoObra));
 
     if (data.id) {
       await this.client.execute({
@@ -217,9 +217,9 @@ export class ProductionService {
         recetaId,
         productoId: producto.id,
         cantidadProducida,
-        costoIngredientes: centsToAmount(costoIngredientesCents),
-        costoManoObra: centsToAmount(costoManoObraCents),
-        costoTotal: centsToAmount(costoTotalCents),
+        costoIngredientes: fromCents(costoIngredientesCents),
+        costoManoObra: fromCents(costoManoObraCents),
+        costoTotal: fromCents(costoTotalCents),
         fecha: new Date().toISOString()
       };
 

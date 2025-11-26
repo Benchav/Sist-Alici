@@ -14,12 +14,17 @@ export const getTursoClient = (): Client => {
     throw new Error("Missing TURSO_DATABASE_URL environment variable.");
   }
 
-  if (!authToken) {
+  const needsAuth = !url.startsWith("file:");
+  if (needsAuth && !authToken) {
     throw new Error("Missing TURSO_AUTH_TOKEN environment variable.");
   }
 
-  tursoClient = createClient({ url, authToken });
+  tursoClient = createClient(authToken ? { url, authToken } : { url });
   return tursoClient;
+};
+
+export const resetTursoClient = (): void => {
+  tursoClient = null;
 };
 
 export const withTursoTransaction = async <T>(

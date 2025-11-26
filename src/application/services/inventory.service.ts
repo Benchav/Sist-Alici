@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { getTursoClient } from "../../infrastructure/database/turso";
 import type { Insumo } from "../../core/entities/insumo.entity";
-import { centsToAmount, toCents } from "../../core/utils/currency";
+import { fromCents, toCents } from "../../core/utils/currency";
 
 type CreateInsumoInput = Pick<Insumo, "nombre" | "unidad"> & Partial<Pick<Insumo, "stock" | "costoPromedio">>;
 type UpdateInsumoInput = Partial<Omit<Insumo, "id">>;
@@ -104,7 +104,7 @@ export class InventoryService {
     const actualizado: Insumo = {
       ...insumo,
       stock: nuevoStock,
-      costoPromedio: centsToAmount(nuevoCostoPromedioCents)
+      costoPromedio: fromCents(nuevoCostoPromedioCents)
     };
 
     await this.client.execute({

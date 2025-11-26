@@ -327,7 +327,12 @@ salesRouter.post(
 
     try {
       const { items, pagos } = parsed.data;
-      const { venta, cambio } = await salesService.procesarVenta(items, pagos);
+      const usuarioId = req.user?.id ?? req.user?.sub;
+      if (!usuarioId) {
+        return res.status(401).json({ error: "Usuario no autenticado." });
+      }
+
+      const { venta, cambio } = await salesService.procesarVenta(items, pagos, usuarioId);
       return res.status(201).json({ data: venta, cambio });
     } catch (error) {
       return handleControllerError(error, res);

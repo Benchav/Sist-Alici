@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { SystemConfig } from "../../core/entities/config.entity";
 import type { Producto } from "../../core/entities/producto.entity";
 import type { DetallePago, Venta, VentaItem } from "../../core/entities/venta.entity";
-import { centsToAmount, toCents } from "../../core/utils/currency";
+import { fromCents, toCents } from "../../core/utils/currency";
 import { getTursoClient, withTursoTransaction } from "../../infrastructure/database/turso";
 
 export type { DetallePago } from "../../core/entities/venta.entity";
@@ -37,14 +37,14 @@ export class SalesService {
 
     const whereClause = condiciones.length ? `WHERE ${condiciones.join(" AND ")}` : "";
     const { rows } = await this.client.execute({
-      sql: `SELECT id, total_nio, fecha, items, pagos
+      sql: `SELECT id, total_nio, fecha, items, pagos, usuario_id, estado
             FROM ventas
             ${whereClause}
             ORDER BY fecha DESC`,
       args
     });
 
-    return rows.map((row) => this.mapVentaRow(row));
+    return await this.hydrateVentas(rows, this.client);
   }
 
   public obtenerVentaPorId(id: string): Promise<Venta> {
@@ -87,13 +87,17 @@ export class SalesService {
 
   public async procesarVenta(
     items: { productoId: string; cantidad: number }[],
-    pagos: DetallePago[]
+    pagos: DetallePago[],
+    usuarioId: string
   ): Promise<{ venta: Venta; cambio: number }> {
     if (!items.length) {
       throw new Error("Debe incluir al menos un producto en la venta.");
     }
     if (!pagos.length) {
       throw new Error("Debe registrar al menos un pago.");
+    }
+    if (!usuarioId?.trim()) {
+      throw new Error("Usuario autenticado requerido para registrar la venta.");
     }
 
     const tasaCambioBase = await this.obtenerTasaCambio();
@@ -128,11 +132,12 @@ export class SalesService {
           }
 
           const precioUnitarioCents = toCents(precioUnitario);
-          const subtotalCents = precioUnitarioCents * item.cantidad;
+          const subtotalCents = Math.round(precioUnitarioCents * item.cantidad);
           return {
             producto,
             cantidad: item.cantidad,
-            precioUnitario: centsToAmount(precioUnitarioCents),
+            precioUnitario: fromCents(precioUnitarioCents),
+            precioUnitarioCents,
             subtotalCents
           };
         })
@@ -163,30 +168,59 @@ export class SalesService {
         precioUnitario: detalle.precioUnitario
       }));
 
+      const ventaId = randomUUID();
       const fechaVenta = new Date().toISOString();
-      const totalVenta = centsToAmount(totalVentaCents);
+      const totalVenta = fromCents(totalVentaCents);
       const venta: Venta = {
-        id: randomUUID(),
+        id: ventaId,
         totalNIO: totalVenta,
         pagos: pagosNormalizados,
         items: ventaItems,
-        fecha: fechaVenta
+        fecha: fechaVenta,
+        usuarioId,
+        estado: "COMPLETA"
       };
 
       await tx.execute({
-        sql: `INSERT INTO ventas (id, total_nio, fecha, items, pagos)
-              VALUES (?, ?, ?, ?, ?)` ,
+        sql: `INSERT INTO ventas (id, total_nio, fecha, items, pagos, usuario_id, estado)
+              VALUES (?, ?, ?, ?, ?, ?, ?)` ,
         args: [
           venta.id,
-          venta.totalNIO,
+          totalVentaCents,
           fechaVenta,
           JSON.stringify(venta.items),
-          JSON.stringify(venta.pagos)
+          JSON.stringify(venta.pagos),
+          usuarioId,
+          venta.estado ?? "COMPLETA"
         ]
       });
 
+      for (const detalle of detalles) {
+        await tx.execute({
+          sql: `INSERT INTO venta_items
+                (id, venta_id, producto_id, cantidad, precio_unitario_cents, subtotal_cents)
+                VALUES (?, ?, ?, ?, ?, ?)` ,
+          args: [
+            randomUUID(),
+            venta.id,
+            detalle.producto.id,
+            detalle.cantidad,
+            detalle.precioUnitarioCents,
+            detalle.subtotalCents
+          ]
+        });
+      }
+
+      for (const pago of pagosNormalizados) {
+        await tx.execute({
+          sql: `INSERT INTO venta_pagos (id, venta_id, moneda, cantidad_cents, tasa)
+                VALUES (?, ?, ?, ?, ?)` ,
+          args: [randomUUID(), venta.id, pago.moneda, toCents(pago.cantidad), pago.tasa ?? null]
+        });
+      }
+
       const cambioCents = totalPagadoCents - totalVentaCents;
-      const cambio = centsToAmount(cambioCents);
+      const cambio = fromCents(cambioCents);
       return { venta, cambio };
     }, this.client);
   }
@@ -222,7 +256,9 @@ export class SalesService {
 
   private async fetchVentaById(id: string, executor: SqlExecutor = this.client): Promise<Venta> {
     const { rows } = await executor.execute({
-      sql: "SELECT id, total_nio, fecha, items, pagos FROM ventas WHERE id = ?",
+      sql: `SELECT id, total_nio, fecha, items, pagos, usuario_id, estado
+            FROM ventas
+            WHERE id = ?`,
       args: [id]
     });
 
@@ -230,7 +266,94 @@ export class SalesService {
       throw new Error("Venta no encontrada.");
     }
 
-    return this.mapVentaRow(rows[0]);
+    const [venta] = await this.hydrateVentas(rows, executor);
+    if (!venta) {
+      throw new Error("Venta no encontrada.");
+    }
+    return venta;
+  }
+
+  private async hydrateVentas(
+    rows: Record<string, unknown>[],
+    executor: SqlExecutor
+  ): Promise<Venta[]> {
+    if (!rows.length) {
+      return [];
+    }
+
+    const ids = rows.map((row) => String(row.id));
+    const [itemsMap, pagosMap] = await Promise.all([
+      this.fetchVentaItems(ids, executor),
+      this.fetchVentaPagos(ids, executor)
+    ]);
+
+    return rows.map((row) => {
+      const ventaId = String(row.id);
+      return this.mapVentaRow(row, itemsMap.get(ventaId), pagosMap.get(ventaId));
+    });
+  }
+
+  private async fetchVentaItems(ids: string[], executor: SqlExecutor): Promise<Map<string, VentaItem[]>> {
+    const map = new Map<string, VentaItem[]>();
+    if (!ids.length) {
+      return map;
+    }
+
+    const placeholders = ids.map(() => "?").join(",");
+    const { rows } = await executor.execute({
+      sql: `SELECT venta_id, producto_id, cantidad, precio_unitario_cents
+            FROM venta_items
+            WHERE venta_id IN (${placeholders})`,
+      args: ids
+    });
+
+    rows.forEach((row: Record<string, unknown>) => {
+      const ventaId = String(row.venta_id);
+      const item: VentaItem = {
+        productoId: String(row.producto_id),
+        cantidad: Number(row.cantidad ?? 0),
+        precioUnitario: fromCents(Number(row.precio_unitario_cents ?? 0))
+      };
+
+      const current = map.get(ventaId) ?? [];
+      current.push(item);
+      map.set(ventaId, current);
+    });
+
+    return map;
+  }
+
+  private async fetchVentaPagos(ids: string[], executor: SqlExecutor): Promise<Map<string, DetallePago[]>> {
+    const map = new Map<string, DetallePago[]>();
+    if (!ids.length) {
+      return map;
+    }
+
+    const placeholders = ids.map(() => "?").join(",");
+    const { rows } = await executor.execute({
+      sql: `SELECT venta_id, moneda, cantidad_cents, tasa
+            FROM venta_pagos
+            WHERE venta_id IN (${placeholders})`,
+      args: ids
+    });
+
+    rows.forEach((row: Record<string, unknown>) => {
+      const ventaId = String(row.venta_id);
+      const pago: DetallePago = {
+        moneda: String(row.moneda ?? "NIO"),
+        cantidad: fromCents(Number(row.cantidad_cents ?? 0)),
+        tasa:
+          row.tasa !== null && row.tasa !== undefined
+            ? Number(row.tasa)
+            : undefined
+      };
+
+      const current = map.get(ventaId) ?? [];
+      current.push(pago);
+      map.set(ventaId, current);
+    });
+
+    return map;
   }
 
   private async fetchProductoById(id: string, executor: SqlExecutor = this.client): Promise<Producto> {
@@ -293,16 +416,25 @@ export class SalesService {
     return map;
   }
 
-  private mapVentaRow(row: Record<string, unknown>): Venta {
-    const items = this.parseJsonField<VentaItem[]>(row.items) ?? [];
-    const pagos = this.parseJsonField<DetallePago[]>(row.pagos) ?? [];
+  private mapVentaRow(
+    row: Record<string, unknown>,
+    normalizedItems?: VentaItem[],
+    normalizedPagos?: DetallePago[]
+  ): Venta {
+    const totalCents = Number(row.total_nio ?? 0);
+    const fallbackItems = this.parseJsonField<VentaItem[]>(row.items) ?? [];
+    const fallbackPagos = this.parseJsonField<DetallePago[]>(row.pagos) ?? [];
+    const items = normalizedItems && normalizedItems.length ? normalizedItems : fallbackItems;
+    const pagos = normalizedPagos && normalizedPagos.length ? normalizedPagos : fallbackPagos;
 
     return {
       id: String(row.id),
-      totalNIO: Number(row.total_nio ?? 0),
+      totalNIO: fromCents(totalCents),
       fecha: typeof row.fecha === "string" ? row.fecha : undefined,
       items: items.map((item) => ({ ...item })),
-      pagos: pagos.map((pago) => ({ ...pago }))
+      pagos: pagos.map((pago) => ({ ...pago })),
+      usuarioId: typeof row.usuario_id === "string" ? row.usuario_id : undefined,
+      estado: typeof row.estado === "string" ? row.estado : undefined
     };
   }
 
@@ -314,7 +446,7 @@ export class SalesService {
     try {
       return JSON.parse(value) as T;
     } catch {
-      throw new Error("Formato inválido de datos almacenados en la base de datos.");
+      return undefined;
     }
   }
 

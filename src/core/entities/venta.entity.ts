@@ -17,4 +17,6 @@ export interface Venta extends Identifiable {
   pagos: DetallePago[];
   items: VentaItem[];
   fecha?: string;
+  usuarioId?: string;
+  estado?: string;
 }
