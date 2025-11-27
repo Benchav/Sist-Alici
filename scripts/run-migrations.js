@@ -7,6 +7,8 @@ const { createClient } = require("@libsql/client");
 require("dotenv").config({ path: path.resolve(process.cwd(), ".env") });
 
 const migrationsDir = path.resolve(__dirname, "../migrations");
+const ALTER_ADD_COLUMN_REGEX =
+  /^ALTER\s+TABLE\s+[`"']?(?<table>[\w]+)[`"']?\s+ADD\s+COLUMN\s+[`"']?(?<column>[\w]+)[`"']?/i;
 
 const ensureConfig = () => {
   const url = process.env.TURSO_DATABASE_URL;
@@ -59,6 +61,30 @@ const run = async () => {
       .filter(Boolean);
 
     for (const statement of statements) {
+      const alterMatch = statement.replace(/\s+/g, " ").match(ALTER_ADD_COLUMN_REGEX);
+      if (alterMatch) {
+        const { table, column } = alterMatch.groups;
+        // Guard ALTER TABLE statements so rerunning migrations stays idempotent.
+        const result = await client.execute(`PRAGMA table_info(${table});`);
+        const rows = Array.isArray(result.rows) ? result.rows : [];
+        const columnExists = rows.some((row) => {
+          if (row && typeof row === "object") {
+            if (Object.prototype.hasOwnProperty.call(row, "name")) {
+              return row.name === column;
+            }
+            const values = Object.values(row);
+            return values[1] === column;
+          }
+          return false;
+        });
+        if (columnExists) {
+          console.log(
+            ` - Skipping ALTER TABLE for ${table}.${column}; column already exists.`
+          );
+          continue;
+        }
+      }
+
       await client.execute(statement);
     }
     console.log(`<<< Completed ${file}`);

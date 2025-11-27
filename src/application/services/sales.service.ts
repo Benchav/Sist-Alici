@@ -14,8 +14,12 @@ type SqlExecutor = {
 export class SalesService {
   private readonly client = getTursoClient();
   private readonly tasaCambioFallback?: number;
+  private readonly schemaReady: Promise<void>;
+  private schemaEnsured = false;
 
   constructor(config?: SystemConfig) {
+    this.schemaReady = this.ensureVentasSchema();
+
     if (config?.tasaCambio && config.tasaCambio > 0) {
       this.tasaCambioFallback = config.tasaCambio;
       void this.ensureDefaultExchangeRate(config.tasaCambio);
@@ -23,6 +27,7 @@ export class SalesService {
   }
 
   public async obtenerHistorial(desde?: Date, hasta?: Date): Promise<Venta[]> {
+    await this.schemaReady;
     const condiciones: string[] = [];
     const args: Array<string> = [];
 
@@ -52,6 +57,7 @@ export class SalesService {
   }
 
   public async anularVenta(id: string): Promise<Venta> {
+    await this.schemaReady;
     return await withTursoTransaction(async (tx) => {
       const venta = await this.fetchVentaById(id, tx);
 
@@ -90,6 +96,7 @@ export class SalesService {
     pagos: DetallePago[],
     usuarioId: string
   ): Promise<{ venta: Venta; cambio: number }> {
+    await this.schemaReady;
     if (!items.length) {
       throw new Error("Debe incluir al menos un producto en la venta.");
     }
@@ -226,6 +233,7 @@ export class SalesService {
   }
 
   private async obtenerTasaCambio(): Promise<number> {
+    await this.schemaReady;
     const { rows } = await this.client.execute({
       sql: "SELECT value FROM config WHERE key = ?",
       args: ["tasaCambio"]
@@ -255,6 +263,7 @@ export class SalesService {
   }
 
   private async fetchVentaById(id: string, executor: SqlExecutor = this.client): Promise<Venta> {
+    await this.schemaReady;
     const { rows } = await executor.execute({
       sql: `SELECT id, total_nio, fecha, items, pagos, usuario_id, estado
             FROM ventas
@@ -294,6 +303,7 @@ export class SalesService {
   }
 
   private async fetchVentaItems(ids: string[], executor: SqlExecutor): Promise<Map<string, VentaItem[]>> {
+    await this.schemaReady;
     const map = new Map<string, VentaItem[]>();
     if (!ids.length) {
       return map;
@@ -324,6 +334,7 @@ export class SalesService {
   }
 
   private async fetchVentaPagos(ids: string[], executor: SqlExecutor): Promise<Map<string, DetallePago[]>> {
+    await this.schemaReady;
     const map = new Map<string, DetallePago[]>();
     if (!ids.length) {
       return map;
@@ -357,6 +368,7 @@ export class SalesService {
   }
 
   private async fetchProductoById(id: string, executor: SqlExecutor = this.client): Promise<Producto> {
+    await this.schemaReady;
     const { rows } = await executor.execute({
       sql: "SELECT id, nombre, stock_disponible, precio_unitario, precio_venta FROM productos WHERE id = ?",
       args: [id]
@@ -383,6 +395,7 @@ export class SalesService {
   }
 
   private async fetchProductosByIds(ids: string[], executor: SqlExecutor): Promise<Map<string, Producto>> {
+    await this.schemaReady;
     const map = new Map<string, Producto>();
     if (!ids.length) {
       return map;
@@ -465,5 +478,67 @@ export class SalesService {
     }
 
     return toCents(pago.cantidad);
+  }
+
+  private async ensureVentasSchema(): Promise<void> {
+    if (this.schemaEnsured) {
+      return;
+    }
+
+    const columnResult = await this.client.execute("PRAGMA table_info(ventas)");
+    const columnNames = new Set<string>(
+      columnResult.rows.map((row: Record<string, unknown>) => String(row.name))
+    );
+
+    const alterStatements: string[] = [];
+    if (!columnNames.has("usuario_id")) {
+      alterStatements.push("ALTER TABLE ventas ADD COLUMN usuario_id TEXT");
+    }
+    if (!columnNames.has("estado")) {
+      alterStatements.push("ALTER TABLE ventas ADD COLUMN estado TEXT DEFAULT 'COMPLETA'");
+    }
+
+    for (const statement of alterStatements) {
+      await this.client.execute(statement);
+    }
+
+    await this.client.execute(`CREATE TABLE IF NOT EXISTS venta_items (
+      id TEXT PRIMARY KEY,
+      venta_id TEXT NOT NULL,
+      producto_id TEXT NOT NULL,
+      cantidad INTEGER NOT NULL,
+      precio_unitario_cents INTEGER NOT NULL,
+      subtotal_cents INTEGER NOT NULL,
+      FOREIGN KEY (venta_id) REFERENCES ventas(id) ON DELETE CASCADE,
+      FOREIGN KEY (producto_id) REFERENCES productos(id)
+    )`);
+
+    await this.client.execute(`CREATE TABLE IF NOT EXISTS venta_pagos (
+      id TEXT PRIMARY KEY,
+      venta_id TEXT NOT NULL,
+      moneda TEXT NOT NULL,
+      cantidad_cents INTEGER NOT NULL,
+      tasa REAL,
+      FOREIGN KEY (venta_id) REFERENCES ventas(id) ON DELETE CASCADE
+    )`);
+
+    await this.client.execute(`CREATE TABLE IF NOT EXISTS receta_items (
+      id TEXT PRIMARY KEY,
+      receta_id TEXT NOT NULL,
+      insumo_id TEXT NOT NULL,
+      cantidad REAL NOT NULL,
+      FOREIGN KEY (receta_id) REFERENCES recetas(id) ON DELETE CASCADE,
+      FOREIGN KEY (insumo_id) REFERENCES insumos(id)
+    )`);
+
+    await this.client.execute("CREATE INDEX IF NOT EXISTS idx_ventas_fecha ON ventas(fecha)");
+    await this.client.execute("CREATE INDEX IF NOT EXISTS idx_recetas_producto ON recetas(producto_id)");
+    await this.client.execute("CREATE INDEX IF NOT EXISTS idx_insumos_nombre ON insumos(nombre)");
+    await this.client.execute("CREATE INDEX IF NOT EXISTS idx_productos_nombre ON productos(nombre)");
+    await this.client.execute(
+      "CREATE INDEX IF NOT EXISTS idx_venta_items_producto ON venta_items(producto_id)"
+    );
+
+    this.schemaEnsured = true;
   }
 }
