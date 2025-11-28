@@ -4,7 +4,9 @@ import { getTursoClient } from "../database/turso";
 
 const baseCurrencyFormatter = new Intl.NumberFormat("es-NI", {
   style: "currency",
-  currency: "NIO"
+  currency: "NIO",
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0
 });
 
 const formatCurrency = (value: number): string =>
@@ -15,7 +17,9 @@ const formatCurrencyByCode = (value: number, currency: string): string => {
   const targetCurrency = safeCurrency === "USD" ? "USD" : "NIO";
   return new Intl.NumberFormat("es-NI", {
     style: "currency",
-    currency: targetCurrency
+    currency: targetCurrency,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
   }).format(Number.isFinite(value) ? value : 0);
 };
 
@@ -26,11 +30,14 @@ export class PdfService {
 
   public async generarFactura(venta: Venta): Promise<Buffer> {
     const nombres = await this.obtenerNombresProductos(venta);
+    const atendidoPor = await this.obtenerNombreUsuario(venta.usuarioId);
     const subtotal = venta.items.reduce(
       (acc, item) => acc + item.precioUnitario * item.cantidad,
       0
     );
     const totalFactura = Number.isFinite(venta.totalNIO) ? venta.totalNIO : subtotal;
+    const totalPagado = this.calcularPagadoCordobas(venta);
+    const cambio = Math.max(totalPagado - totalFactura, 0);
 
     return await new Promise<Buffer>((resolve, reject) => {
       const doc = new PDFDocument({ margin: 48, size: "A4" });
@@ -41,10 +48,10 @@ export class PdfService {
       doc.on("error", reject);
 
       this.drawHeader(doc);
-      this.drawInvoiceMeta(doc, venta);
+      this.drawInvoiceMeta(doc, venta, atendidoPor);
       this.drawItemsTable(doc, venta, nombres);
-      this.drawTotalsSection(doc, subtotal, totalFactura);
-      this.drawPaymentsSection(doc, venta);
+      this.drawTotalsSection(doc, subtotal, totalFactura, totalPagado, cambio);
+      this.drawPaymentsSection(doc, venta, totalPagado, cambio);
       this.drawFooter(doc);
 
       doc.end();
@@ -82,7 +89,7 @@ export class PdfService {
     doc.moveDown(2.5);
   }
 
-  private drawInvoiceMeta(doc: PdfDoc, venta: Venta): void {
+  private drawInvoiceMeta(doc: PdfDoc, venta: Venta, atendidoPor?: string): void {
     const metaData = [
       {
         label: "Fecha",
@@ -90,7 +97,7 @@ export class PdfService {
       },
       { label: "Factura", value: venta.id },
       { label: "Estado", value: venta.estado ?? "COMPLETA" },
-      { label: "Atendido por", value: venta.usuarioId ?? "No especificado" }
+      { label: "Atendido por", value: atendidoPor ?? venta.usuarioId ?? "No especificado" }
     ];
 
     const { left, right } = doc.page.margins;
@@ -183,14 +190,22 @@ export class PdfService {
     doc.y = rowY + 4;
   }
 
-  private drawTotalsSection(doc: PdfDoc, subtotal: number, total: number): void {
+  private drawTotalsSection(
+    doc: PdfDoc,
+    subtotal: number,
+    total: number,
+    pagado: number,
+    cambio: number
+  ): void {
     const { left, right } = doc.page.margins;
-    const sectionWidth = 240;
+    const sectionWidth = 260;
     const labelX = doc.page.width - right - sectionWidth;
     const startY = doc.y + 10;
     const rows = [
       { label: "Subtotal", value: formatCurrency(subtotal), bold: false },
-      { label: "Total factura", value: formatCurrency(total), bold: true }
+      { label: "Total factura", value: formatCurrency(total), bold: true },
+      { label: "Pagado", value: formatCurrency(pagado), bold: false },
+      { label: "Cambio", value: formatCurrency(cambio), bold: false }
     ];
 
     rows.forEach((row, index) => {
@@ -207,7 +222,12 @@ export class PdfService {
     doc.y = startY + rows.length * 18 + 10;
   }
 
-  private drawPaymentsSection(doc: PdfDoc, venta: Venta): void {
+  private drawPaymentsSection(
+    doc: PdfDoc,
+    venta: Venta,
+    totalPagado: number,
+    cambio: number
+  ): void {
     const pagos = venta.pagos ?? [];
     doc.moveDown(1);
     doc.font("Helvetica-Bold").fontSize(12).fillColor("#0f172a").text("Pagos registrados");
@@ -215,19 +235,30 @@ export class PdfService {
 
     if (!pagos.length) {
       doc.font("Helvetica").fontSize(11).fillColor("#94a3b8").text("No se registraron pagos para esta venta.");
+      doc.moveDown(0.5);
+      doc.font("Helvetica-Bold").fontSize(10).fillColor("#475569").text(
+        `Total pagado: ${formatCurrency(totalPagado)}  |  Cambio: ${formatCurrency(cambio)}`
+      );
       return;
     }
 
     pagos.forEach((pago) => {
+      const moneda = (pago.moneda ?? "NIO").toUpperCase();
+      const equivalente = moneda === "USD" ? pago.cantidad * (pago.tasa ?? 1) : pago.cantidad;
       doc.font("Helvetica-Bold").fontSize(11).fillColor("#4338ca");
-      doc.text(pago.moneda.toUpperCase(), { continued: true });
+      doc.text(moneda, { continued: true });
       doc.font("Helvetica").fontSize(11).fillColor("#0f172a");
       doc.text(
-        `  •  ${formatCurrencyByCode(pago.cantidad, pago.moneda)}${
+        `  •  ${formatCurrencyByCode(pago.cantidad, moneda)}$${
           pago.tasa ? `  (Tasa: ${pago.tasa.toFixed(2)})` : ""
-        }`
+        }  •  Equivalente: ${formatCurrency(equivalente)}`
       );
     });
+
+    doc.moveDown(0.5);
+    doc.font("Helvetica-Bold").fontSize(10).fillColor("#475569").text(
+      `Total pagado: ${formatCurrency(totalPagado)}  |  Cambio: ${formatCurrency(cambio)}`
+    );
   }
 
   private drawFooter(doc: PdfDoc): void {
@@ -237,7 +268,7 @@ export class PdfService {
     doc.moveTo(left, doc.y).lineTo(doc.page.width - right, doc.y).stroke();
     doc.moveDown(0.8);
     doc.font("Helvetica").fontSize(10).fillColor("#94a3b8");
-    doc.text("Gracias por confiar en Panadería Alici. Este documento es válido sin firma ni sello.", {
+    doc.text("Gracias por confiar en Panadería Alicia. Este documento es válido sin firma ni sello.", {
       align: "center"
     });
   }
@@ -261,5 +292,30 @@ export class PdfService {
     });
 
     return map;
+  }
+
+  private async obtenerNombreUsuario(usuarioId?: string): Promise<string | undefined> {
+    if (!usuarioId) {
+      return undefined;
+    }
+
+    const { rows } = await this.client.execute({
+      sql: "SELECT nombre FROM usuarios WHERE id = ? LIMIT 1",
+      args: [usuarioId]
+    });
+
+    if (!rows.length) {
+      return undefined;
+    }
+
+    return String(rows[0].nombre ?? "").trim() || undefined;
+  }
+
+  private calcularPagadoCordobas(venta: Venta): number {
+    return (venta.pagos ?? []).reduce((acc, pago) => {
+      const moneda = (pago.moneda ?? "NIO").toUpperCase();
+      const tasa = pago.tasa ?? 1;
+      return acc + (moneda === "USD" ? pago.cantidad * tasa : pago.cantidad);
+    }, 0);
   }
 }
