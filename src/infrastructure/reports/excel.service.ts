@@ -2,7 +2,8 @@ import ExcelJS, { type Row, type Worksheet } from "exceljs";
 import type { Venta } from "../../core/entities/venta.entity";
 import { getTursoClient } from "../database/turso";
 
-const CURRENCY_FORMAT = "\"C$\" #,##0.00";
+const CURRENCY_FORMAT = "\"C$\" #,##0";
+const USD_CURRENCY_FORMAT = "\"$\" #,##0";
 
 export class ExcelService {
   private readonly client = getTursoClient();
@@ -16,6 +17,7 @@ export class ExcelService {
 
     this.configureColumns(sheet);
     this.renderReportHeader(sheet);
+    this.renderSummaryCards(sheet, ventas);
 
     const nombresProductos = await this.obtenerNombresProductos(ventas);
 
@@ -28,7 +30,7 @@ export class ExcelService {
   }
 
   private configureColumns(sheet: Worksheet): void {
-    sheet.columns = Array.from({ length: 9 }, () => ({ width: 20 }));
+    sheet.columns = Array.from({ length: 8 }, () => ({ width: 20 }));
     sheet.getColumn(1).width = 26;
     sheet.getColumn(2).width = 22;
     sheet.getColumn(3).width = 18;
@@ -36,27 +38,103 @@ export class ExcelService {
     sheet.getColumn(5).width = 18;
     sheet.getColumn(6).width = 18;
     sheet.getColumn(7).width = 18;
+    sheet.getColumn(8).width = 18;
   }
 
   private renderReportHeader(sheet: Worksheet): void {
-    sheet.mergeCells("A1:G1");
+    sheet.mergeCells("A1:H1");
     const title = sheet.getCell("A1");
-    title.value = "Panadería Alici · Reporte de Ventas";
+    title.value = "Panadería Alicia · Reporte de Ventas";
     title.font = { name: "Calibri", size: 18, bold: true, color: { argb: "FF1D4ED8" } };
     title.alignment = { horizontal: "left", vertical: "middle" };
     sheet.getRow(1).height = 32;
 
-    sheet.mergeCells("A2:G2");
+    sheet.mergeCells("A2:H2");
     const subtitle = sheet.getCell("A2");
     subtitle.value = `Generado: ${new Date().toLocaleString("es-NI")}`;
     subtitle.font = { name: "Calibri", size: 11, color: { argb: "FF475569" } };
     subtitle.alignment = { horizontal: "left" };
 
-    sheet.mergeCells("A3:G3");
+    sheet.mergeCells("A3:H3");
     const note = sheet.getCell("A3");
-    note.value = "Documento interno — Panel ERP Sist-Alici";
+    note.value = "Documento interno — Panel ERP Sist-Alicia";
     note.font = { name: "Calibri", size: 10, color: { argb: "FF94A3B8" } };
     note.alignment = { horizontal: "left" };
+
+    sheet.addRow([]);
+  }
+
+  private renderSummaryCards(sheet: Worksheet, ventas: Venta[]): void {
+    if (!ventas.length) {
+      sheet.addRow([]);
+      return;
+    }
+
+    const totalFacturado = this.roundToUnits(
+      ventas.reduce((acc, venta) => acc + (venta.totalNIO ?? 0), 0)
+    );
+    const totalPagado = this.roundToUnits(
+      ventas.reduce((acc, venta) => acc + this.calcularPagadoCordobas(venta), 0)
+    );
+    const totalProductos = ventas.reduce(
+      (acc, venta) => acc + venta.items.reduce((inner, item) => inner + item.cantidad, 0),
+      0
+    );
+
+    const cards = [
+      {
+        label: "Ventas registradas",
+        value: `${ventas.length}`,
+        description: "Facturas emitidas"
+      },
+      {
+        label: "Total facturado",
+        value: `C$ ${totalFacturado.toLocaleString("es-NI")}`,
+        description: "Córdobas"
+      },
+      {
+        label: "Pagado",
+        value: `C$ ${totalPagado.toLocaleString("es-NI")}`,
+        description: "Monto recibido"
+      },
+      {
+        label: "Unidades vendidas",
+        value: `${this.roundToUnits(totalProductos)}`,
+        description: "Productos"
+      }
+    ];
+
+    const labelRowNumber = sheet.addRow(new Array(8).fill(""))?.number ?? 5;
+    const valueRowNumber = sheet.addRow(new Array(8).fill(""))?.number ?? labelRowNumber + 1;
+
+    cards.forEach((card, index) => {
+      const startCol = index * 2 + 1;
+      const endCol = startCol + 1;
+
+      sheet.mergeCells(labelRowNumber, startCol, labelRowNumber, endCol);
+      sheet.mergeCells(valueRowNumber, startCol, valueRowNumber, endCol);
+
+      const labelCell = sheet.getCell(labelRowNumber, startCol);
+      labelCell.value = card.label.toUpperCase();
+      labelCell.font = { name: "Calibri", bold: true, size: 10, color: { argb: "FF6366F1" } };
+      labelCell.alignment = { horizontal: "left" };
+
+      const valueCell = sheet.getCell(valueRowNumber, startCol);
+      valueCell.value = `${card.value}\n${card.description}`;
+      valueCell.font = { name: "Calibri", size: 12, color: { argb: "FF0F172A" } };
+      valueCell.alignment = { horizontal: "left", vertical: "middle", wrapText: true };
+
+      const fillColor = index % 2 === 0 ? "FFEFF6FF" : "FFF5F3FF";
+      [labelCell, valueCell].forEach((cell) => {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: fillColor } };
+        cell.border = {
+          top: { style: "thin", color: { argb: "FFDBEAFE" } },
+          left: { style: "thin", color: { argb: "FFDBEAFE" } },
+          bottom: { style: "thin", color: { argb: "FFDBEAFE" } },
+          right: { style: "thin", color: { argb: "FFDBEAFE" } }
+        };
+      });
+    });
 
     sheet.addRow([]);
   }
@@ -75,13 +153,14 @@ export class ExcelService {
     }
 
     ventas.forEach((venta) => {
+      const totalVenta = this.roundToUnits(venta.totalNIO);
       const totalPagado = this.calcularPagadoCordobas(venta);
-      const cambio = Number((totalPagado - venta.totalNIO).toFixed(2));
+      const cambio = this.roundToUnits(totalPagado - totalVenta);
 
       const row = sheet.addRow([
         venta.id,
         this.formatDate(venta.fecha),
-        venta.totalNIO,
+        totalVenta,
         totalPagado,
         cambio
       ]);
@@ -116,12 +195,12 @@ export class ExcelService {
         const row = sheet.addRow([
           venta.id,
           nombres.get(item.productoId) ?? item.productoId,
-          item.cantidad,
-          item.precioUnitario,
-          item.precioUnitario * item.cantidad
+          this.roundToUnits(item.cantidad),
+          this.roundToUnits(item.precioUnitario),
+          this.roundToUnits(item.precioUnitario * item.cantidad)
         ]);
         this.styleDataRow(row);
-        row.getCell(3).numFmt = "0.00";
+        row.getCell(3).numFmt = "0";
         row.getCell(4).numFmt = CURRENCY_FORMAT;
         row.getCell(5).numFmt = CURRENCY_FORMAT;
       });
@@ -157,12 +236,12 @@ export class ExcelService {
         const row = sheet.addRow([
           venta.id,
           moneda,
-          pago.cantidad,
+          this.roundToUnits(pago.cantidad),
           tasa ?? "-",
-          equivalente
+          this.roundToUnits(equivalente)
         ]);
         this.styleDataRow(row);
-        row.getCell(3).numFmt = moneda === "USD" ? "\"$\" #,##0.00" : CURRENCY_FORMAT;
+        row.getCell(3).numFmt = moneda === "USD" ? USD_CURRENCY_FORMAT : CURRENCY_FORMAT;
         row.getCell(4).numFmt = "0.00";
         row.getCell(5).numFmt = CURRENCY_FORMAT;
       });
@@ -175,13 +254,12 @@ export class ExcelService {
   }
 
   private calcularPagadoCordobas(venta: Venta): number {
-    return Number(
-      (venta.pagos ?? []).reduce((acc, pago) => {
-        const moneda = pago.moneda.trim().toUpperCase();
-        const tasa = pago.tasa ?? 1;
-        return acc + (moneda === "USD" ? pago.cantidad * tasa : pago.cantidad);
-      }, 0).toFixed(2)
-    );
+    const total = (venta.pagos ?? []).reduce((acc, pago) => {
+      const moneda = pago.moneda.trim().toUpperCase();
+      const tasa = pago.tasa ?? 1;
+      return acc + (moneda === "USD" ? pago.cantidad * tasa : pago.cantidad);
+    }, 0);
+    return this.roundToUnits(total);
   }
 
   private styleTableHeader(row: Row): void {
@@ -214,7 +292,7 @@ export class ExcelService {
 
   private addSectionTitle(sheet: Worksheet, text: string): void {
     const row = sheet.addRow([text]);
-    sheet.mergeCells(`A${row.number}:G${row.number}`);
+    sheet.mergeCells(`A${row.number}:H${row.number}`);
     row.font = { name: "Calibri", bold: true, size: 12, color: { argb: "FF1E293B" } };
     row.alignment = { horizontal: "left" };
     row.height = 24;
@@ -225,6 +303,14 @@ export class ExcelService {
       return "";
     }
     return new Date(value).toLocaleString("es-NI");
+  }
+
+  private roundToUnits(value: number | undefined | null): number {
+    const numeric = Number(value ?? 0);
+    if (!Number.isFinite(numeric)) {
+      return 0;
+    }
+    return Math.round(numeric);
   }
 
   private async obtenerNombresProductos(ventas: Venta[]): Promise<Map<string, string>> {
