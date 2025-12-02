@@ -1,5 +1,10 @@
 import swaggerJsdoc, { type Options } from "swagger-jsdoc";
 
+const resolveServerUrl = (): string => {
+  const rawUrl = process.env.API_SWAGGER_BASE_URL ?? process.env.API_BASE_URL ?? "http://localhost:3000";
+  return rawUrl.replace(/\/api\/?$/, "");
+};
+
 const swaggerOptions: Options = {
   definition: {
     openapi: "3.0.3",
@@ -10,7 +15,7 @@ const swaggerOptions: Options = {
     },
     servers: [
       {
-        url: process.env.API_BASE_URL ?? "http://localhost:3000",
+        url: resolveServerUrl(),
         description: "Servidor principal"
       }
     ],
