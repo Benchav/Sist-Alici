@@ -1,6 +1,8 @@
 import "dotenv/config";
+import type { Categoria } from "../core/entities/categoria.entity";
 import type { Insumo } from "../core/entities/insumo.entity";
 import type { Producto } from "../core/entities/producto.entity";
+import type { Proveedor } from "../core/entities/proveedor.entity";
 import type { Receta } from "../core/entities/receta.entity";
 import type { DetallePago, Venta } from "../core/entities/venta.entity";
 import { Role, type Usuario } from "../core/entities/usuario.entity";
@@ -92,7 +94,67 @@ async function seedUsers(token: string): Promise<Usuario[]> {
   return created;
 }
 
-async function seedInsumos(token: string): Promise<Insumo[]> {
+async function seedCategorias(token: string): Promise<Categoria[]> {
+  const fixtures: Array<Pick<Categoria, "nombre" | "tipo">> = [
+    { nombre: `Línea Producción ${RUN_SUFFIX}`, tipo: "PRODUCCION" },
+    { nombre: `Reventa Gourmet ${RUN_SUFFIX}`, tipo: "REVENTA" },
+    { nombre: `Insumos Base ${RUN_SUFFIX}`, tipo: "INSUMO" }
+  ];
+
+  const created: Categoria[] = [];
+  console.log(`Creando ${fixtures.length} categorías...`);
+  for (const categoria of fixtures) {
+    const response = await callApi<ApiResponse<Categoria>>("/inventory/categories", {
+      method: "POST",
+      token,
+      body: categoria
+    });
+    created.push(response.data);
+    console.log(`  • Categoría ${response.data.nombre} (${response.data.tipo})`);
+    await delay(50);
+  }
+  return created;
+}
+
+async function seedProveedores(token: string): Promise<Proveedor[]> {
+  const fixtures: Array<Pick<Proveedor, "nombre" | "frecuenciaCredito" | "contacto">> = [
+    {
+      nombre: `Harinas Selectas ${RUN_SUFFIX}`,
+      frecuenciaCredito: "30D",
+      contacto: "harinas@suministros.test"
+    },
+    {
+      nombre: `Lácteos Premium ${RUN_SUFFIX}`,
+      frecuenciaCredito: "15D",
+      contacto: "lacteos@suministros.test"
+    },
+    {
+      nombre: `Dulces Centro ${RUN_SUFFIX}`,
+      frecuenciaCredito: "45D",
+      contacto: "dulces@suministros.test"
+    }
+  ];
+
+  const created: Proveedor[] = [];
+  console.log(`Creando ${fixtures.length} proveedores...`);
+  for (const proveedor of fixtures) {
+    const response = await callApi<ApiResponse<Proveedor>>("/inventory/providers", {
+      method: "POST",
+      token,
+      body: proveedor
+    });
+    created.push(response.data);
+    console.log(`  • Proveedor ${response.data.nombre}`);
+    await delay(50);
+  }
+  return created;
+}
+
+async function seedInsumos(token: string, proveedores: Proveedor[]): Promise<Insumo[]> {
+  if (!proveedores.length) {
+    throw new Error("Se requiere al menos un proveedor para registrar insumos.");
+  }
+
   const insumoFixtures: Array<Pick<Insumo, "nombre" | "unidad" | "stock" | "costoPromedio">> = [
     { nombre: "Harina Suprema", unidad: "kg", stock: 500, costoPromedio: 32.5 },
     { nombre: "Azúcar Morena", unidad: "kg", stock: 320, costoPromedio: 27.8 },
@@ -103,11 +165,13 @@ async function seedInsumos(token: string): Promise<Insumo[]> {
 
   const created: Insumo[] = [];
   console.log(`Creando ${insumoFixtures.length} insumos...`);
-  for (const insumo of insumoFixtures) {
+  for (let index = 0; index < insumoFixtures.length; index++) {
+    const insumo = insumoFixtures[index];
+    const proveedor = proveedores[index % proveedores.length];
     const response = await callApi<ApiResponse<Insumo>>("/inventory", {
       method: "POST",
       token,
-      body: insumo
+      body: { ...insumo, proveedorPrincipalId: proveedor.id }
     });
     created.push(response.data);
     console.log(`  • Insumo ${response.data.nombre}`);
@@ -116,13 +180,50 @@ async function seedInsumos(token: string): Promise<Insumo[]> {
   return created;
 }
 
-async function seedProductos(token: string): Promise<Producto[]> {
-  const productoFixtures: Array<Pick<Producto, "nombre" | "stockDisponible" | "precioUnitario" | "precioVenta">> = [
-    { nombre: `Pan Brioche ${RUN_SUFFIX}`, stockDisponible: 0, precioUnitario: 38, precioVenta: 60 },
-    { nombre: `Baguette Mediterránea ${RUN_SUFFIX}`, stockDisponible: 0, precioUnitario: 42, precioVenta: 68 },
-    { nombre: `Croissant Mantequilla ${RUN_SUFFIX}`, stockDisponible: 0, precioUnitario: 55, precioVenta: 85 },
-    { nombre: `Pastel Cacao Intenso ${RUN_SUFFIX}`, stockDisponible: 0, precioUnitario: 180, precioVenta: 260 },
-    { nombre: `Pan Integral Semillas ${RUN_SUFFIX}`, stockDisponible: 0, precioUnitario: 45, precioVenta: 70 }
+async function seedProductos(token: string, categorias: Categoria[]): Promise<Producto[]> {
+  const categoriaProduccion = categorias.find((cat) => cat.tipo === "PRODUCCION");
+  if (!categoriaProduccion) {
+    throw new Error("Se requiere una categoría de PRODUCCION para los productos base.");
+  }
+
+  const productoFixtures: Array<
+    Pick<Producto, "nombre" | "stockDisponible" | "precioUnitario" | "precioVenta" | "categoriaId">
+  > = [
+    {
+      nombre: `Pan Brioche ${RUN_SUFFIX}`,
+      stockDisponible: 0,
+      precioUnitario: 38,
+      precioVenta: 60,
+      categoriaId: categoriaProduccion.id
+    },
+    {
+      nombre: `Baguette Mediterránea ${RUN_SUFFIX}`,
+      stockDisponible: 0,
+      precioUnitario: 42,
+      precioVenta: 68,
+      categoriaId: categoriaProduccion.id
+    },
+    {
+      nombre: `Croissant Mantequilla ${RUN_SUFFIX}`,
+      stockDisponible: 0,
+      precioUnitario: 55,
+      precioVenta: 85,
+      categoriaId: categoriaProduccion.id
+    },
+    {
+      nombre: `Pastel Cacao Intenso ${RUN_SUFFIX}`,
+      stockDisponible: 0,
+      precioUnitario: 180,
+      precioVenta: 260,
+      categoriaId: categoriaProduccion.id
+    },
+    {
+      nombre: `Pan Integral Semillas ${RUN_SUFFIX}`,
+      stockDisponible: 0,
+      precioUnitario: 45,
+      precioVenta: 70,
+      categoriaId: categoriaProduccion.id
+    }
   ];
 
   const created: Producto[] = [];
@@ -135,6 +236,46 @@ async function seedProductos(token: string): Promise<Producto[]> {
     });
     created.push(response.data);
     console.log(`  • Producto ${response.data.nombre}`);
+    await delay(50);
+  }
+  return created;
+}
+
+async function seedProductosReventa(token: string, categorias: Categoria[]): Promise<Producto[]> {
+  const categoriaReventa = categorias.find((cat) => cat.tipo === "REVENTA");
+  if (!categoriaReventa) {
+    throw new Error("Se requiere una categoría de REVENTA para los productos de reventa.");
+  }
+
+  const fixtures: Array<
+    Pick<Producto, "nombre" | "stockDisponible" | "precioUnitario" | "precioVenta" | "categoriaId">
+  > = [
+    {
+      nombre: `Queso Curado ${RUN_SUFFIX}`,
+      stockDisponible: 0,
+      precioUnitario: 210,
+      precioVenta: 320,
+      categoriaId: categoriaReventa.id
+    },
+    {
+      nombre: `Café Tostado ${RUN_SUFFIX}`,
+      stockDisponible: 0,
+      precioUnitario: 185,
+      precioVenta: 290,
+      categoriaId: categoriaReventa.id
+    }
+  ];
+
+  const created: Producto[] = [];
+  console.log(`Creando ${fixtures.length} productos de reventa...`);
+  for (const producto of fixtures) {
+    const response = await callApi<ApiResponse<Producto>>("/production/products", {
+      method: "POST",
+      token,
+      body: producto
+    });
+    created.push(response.data);
+    console.log(`  • Producto de reventa ${response.data.nombre}`);
     await delay(50);
   }
   return created;
@@ -236,36 +377,84 @@ async function seedProduccion(token: string, recetas: Receta[]): Promise<void> {
     await callApi<ApiResponse<unknown>>("/production", {
       method: "POST",
       token,
-      body: { recetaId: receta.id, cantidad }
+      body: { recetaId: receta.id, tandas: cantidad }
     });
     console.log(`  • Producción registrada: receta ${receta.id} x ${cantidad}`);
     await delay(50);
   }
 }
 
-async function fetchProductos(token: string): Promise<Producto[]> {
+async function seedComprasReventa(token: string, productos: Producto[]): Promise<void> {
+  if (!productos.length) {
+    return;
+  }
+
+  console.log("Registrando compras de productos para reventa...");
+  for (let index = 0; index < productos.length; index++) {
+    const producto = productos[index];
+    const cantidad = 24 + index * 8;
+    const costoUnitario = producto.precioUnitario ?? producto.precioVenta ?? 150;
+    const costoTotal = Number((costoUnitario * cantidad * 0.85).toFixed(2));
+
+    await callApi<ApiResponse<Producto>>("/inventory/purchase/finished", {
+      method: "POST",
+      token,
+      body: {
+        productoId: producto.id,
+        cantidad,
+        costoTotal
+      }
+    });
+
+    console.log(`  • Compra registrada para ${producto.nombre} (${cantidad} uds)`);
+    await delay(50);
+  }
+}
+
+async function fetchProductos(token: string, nombres?: string[]): Promise<Producto[]> {
   const response = await callApi<ApiResponse<Producto[]>>("/production/products", {
     method: "GET",
     token
   });
 
-  const filtered = response.data.filter((producto) => producto.nombre.includes(RUN_SUFFIX));
-  if (filtered.length < 5) {
-    throw new Error("No se encontraron los 5 productos sembrados en esta ejecución.");
+  let filtered: Producto[];
+  if (nombres?.length) {
+    const allowed = new Set(nombres);
+    filtered = response.data.filter((producto) => allowed.has(producto.nombre));
+  } else {
+    filtered = response.data.filter((producto) => producto.nombre.includes(RUN_SUFFIX));
+  }
+
+  if (!filtered.length) {
+    throw new Error("No se encontraron productos coincidentes con esta ejecución.");
   }
 
   return filtered;
 }
 
-async function seedVentas(token: string): Promise<Venta[]> {
-  const productos = await fetchProductos(token);
-  const productMap = new Map(productos.map((prod) => [prod.nombre, prod]));
+async function seedVentas(token: string, productosBase: Producto[]): Promise<Venta[]> {
+  if (productosBase.length < 5) {
+    throw new Error("Se requieren al menos 5 productos base para registrar ventas.");
+  }
+
+  const nombresObjetivo = productosBase.map((producto) => producto.nombre);
+  const productos = await fetchProductos(token, nombresObjetivo);
+  const ordered = nombresObjetivo.map((nombre) => {
+    const encontrado = productos.find((prod) => prod.nombre === nombre);
+    if (!encontrado) {
+      throw new Error(`Producto ${nombre} no está disponible para ventas.`);
+    }
+    return encontrado;
+  });
+
+  const productMap = new Map(ordered.map((prod) => [prod.nombre, prod]));
+  const [productoA, productoB, productoC, productoD, productoE] = ordered;
 
   const templates = [
     {
       items: [
-        { nombre: productos[0].nombre, cantidad: 5 },
-        { nombre: productos[3].nombre, cantidad: 3 }
+        { nombre: productoA.nombre, cantidad: 5 },
+        { nombre: productoD.nombre, cantidad: 3 }
       ],
       pagos: [
         { moneda: "NIO" as const, coverage: 1.1 }
@@ -273,7 +462,7 @@ async function seedVentas(token: string): Promise<Venta[]> {
     },
     {
       items: [
-        { nombre: productos[1].nombre, cantidad: 6 }
+        { nombre: productoB.nombre, cantidad: 6 }
       ],
       pagos: [
         { moneda: "USD" as const, coverage: 1.2, tasa: DEFAULT_TASA_CAMBIO }
@@ -281,7 +470,7 @@ async function seedVentas(token: string): Promise<Venta[]> {
     },
     {
       items: [
-        { nombre: productos[2].nombre, cantidad: 8 }
+        { nombre: productoC.nombre, cantidad: 8 }
       ],
       pagos: [
         { moneda: "NIO" as const, coverage: 0.6 },
@@ -290,7 +479,7 @@ async function seedVentas(token: string): Promise<Venta[]> {
     },
     {
       items: [
-        { nombre: productos[4].nombre, cantidad: 10 }
+        { nombre: productoE.nombre, cantidad: 10 }
       ],
       pagos: [
         { moneda: "NIO" as const, coverage: 1.05 }
@@ -298,8 +487,8 @@ async function seedVentas(token: string): Promise<Venta[]> {
     },
     {
       items: [
-        { nombre: productos[0].nombre, cantidad: 7 },
-        { nombre: productos[2].nombre, cantidad: 4 }
+        { nombre: productoA.nombre, cantidad: 7 },
+        { nombre: productoC.nombre, cantidad: 4 }
       ],
       pagos: [
         { moneda: "USD" as const, coverage: 0.8, tasa: DEFAULT_TASA_CAMBIO },
@@ -368,11 +557,15 @@ async function main(): Promise<void> {
   try {
     const token = await authenticate();
     await seedUsers(token);
-    const insumos = await seedInsumos(token);
-    const productos = await seedProductos(token);
-    const recetas = await seedRecetas(token, productos, insumos);
+    const categorias = await seedCategorias(token);
+    const proveedores = await seedProveedores(token);
+    const insumos = await seedInsumos(token, proveedores);
+    const productosProduccion = await seedProductos(token, categorias);
+    const productosReventa = await seedProductosReventa(token, categorias);
+    const recetas = await seedRecetas(token, productosProduccion, insumos);
     await seedProduccion(token, recetas);
-    await seedVentas(token);
+    await seedComprasReventa(token, productosReventa);
+    await seedVentas(token, productosProduccion);
     console.log("\nSemillas API completadas correctamente.");
   } catch (error) {
     console.error("Error durante el proceso de sembrado:", error);

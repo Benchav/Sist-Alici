@@ -5,4 +5,5 @@ export interface Insumo extends Identifiable {
   unidad: string;
   stock: number;
   costoPromedio: number;
+  proveedorPrincipalId?: string;
 }

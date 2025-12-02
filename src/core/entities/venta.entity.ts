@@ -19,4 +19,8 @@ export interface Venta extends Identifiable {
   fecha?: string;
   usuarioId?: string;
   estado?: string;
+  descuentoNIO?: number;
+  tipoVenta?: "DIRECTA" | "ENCARGO";
+  totalPagadoNIO?: number;
+  encargoId?: string;
 }

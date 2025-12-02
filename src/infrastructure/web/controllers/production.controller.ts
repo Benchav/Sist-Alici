@@ -15,17 +15,18 @@ const productionService = new ProductionService();
 
 const productionSchema = z.object({
   recetaId: z.string().min(1, "recetaId es requerido"),
-  cantidad: z
+  tandas: z
     .number()
-    .int("La cantidad debe ser entera")
-    .positive("La cantidad debe ser mayor a cero")
+    .int("Las tandas deben ser enteras")
+    .positive("Las tandas deben ser mayor a cero")
 });
 
 const productoSchema = z.object({
   nombre: z.string().min(3, "El nombre debe tener al menos 3 caracteres"),
   stockDisponible: z.number().nonnegative("El stock no puede ser negativo").optional(),
   precioUnitario: z.number().nonnegative("El precio unitario no puede ser negativo").optional(),
-  precioVenta: z.number().nonnegative("El precio de venta no puede ser negativo").optional()
+  precioVenta: z.number().nonnegative("El precio de venta no puede ser negativo").optional(),
+  categoriaId: z.string().min(1).optional()
 });
 
 const updateProductoSchema = productoSchema.partial();
@@ -39,6 +40,11 @@ const upsertRecetaSchema = z.object({
   id: z.string().min(1).optional(),
   productoId: z.string().min(1, "productoId es requerido"),
   costoManoObra: z.number().nonnegative("El costo de mano de obra no puede ser negativo").optional(),
+  rendimientoBase: z
+    .number()
+    .int("El rendimiento base debe ser entero")
+    .positive("El rendimiento base debe ser mayor a cero")
+    .optional(),
   items: z.array(recetaItemSchema).min(1, "Debe proporcionar al menos un insumo")
 });
 
@@ -125,8 +131,8 @@ productionRouter.post(
   }
 
     try {
-      const { recetaId, cantidad } = parsed.data;
-      const data = await productionService.registrarProduccion(recetaId, cantidad);
+      const { recetaId, tandas } = parsed.data;
+      const data = await productionService.registrarProduccion(recetaId, tandas);
       return res.status(201).json({ data });
     } catch (error) {
       return handleControllerError(error, res);

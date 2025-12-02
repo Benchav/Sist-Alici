@@ -5,4 +5,5 @@ export interface Producto extends Identifiable {
   stockDisponible: number;
   precioUnitario?: number;
   precioVenta?: number;
+  categoriaId?: string;
 }

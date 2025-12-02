@@ -9,6 +9,7 @@ interface ProductionRecord {
   id: string;
   recetaId: string;
   productoId: string;
+  cantidadTandas: number;
   cantidadProducida: number;
   costoIngredientes: number;
   costoManoObra: number;
@@ -23,6 +24,7 @@ type UpsertRecetaInput = {
   productoId: string;
   items: Receta["items"];
   costoManoObra?: number;
+  rendimientoBase?: number;
 };
 
 type SqlExecutor = {
@@ -41,7 +43,7 @@ export class ProductionService {
 
   public async listarRecetas(): Promise<Receta[]> {
     const { rows } = await this.client.execute(
-      "SELECT id, producto_id, costo_mano_obra, items FROM recetas ORDER BY id"
+      "SELECT id, producto_id, costo_mano_obra, items, rendimiento_base FROM recetas ORDER BY id"
     );
     return rows.map((row) => this.mapRecetaRow(row));
   }
@@ -58,16 +60,18 @@ export class ProductionService {
       data.costoManoObra === undefined || data.costoManoObra === null
         ? null
         : fromCents(toCents(data.costoManoObra));
+    const rendimientoBase = Math.max(1, Math.floor(Number(data.rendimientoBase ?? 1)));
 
     if (data.id) {
       await this.client.execute({
         sql: `UPDATE recetas
-              SET producto_id = ?, costo_mano_obra = ?, items = ?
+              SET producto_id = ?, costo_mano_obra = ?, items = ?, rendimiento_base = ?
               WHERE id = ?`,
         args: [
           data.productoId,
           costoManoObraSanitized,
           JSON.stringify(data.items),
+          rendimientoBase,
           data.id
         ]
       });
@@ -76,22 +80,23 @@ export class ProductionService {
 
     const id = `REC-${randomUUID()}`;
     await this.client.execute({
-      sql: `INSERT INTO recetas (id, producto_id, costo_mano_obra, items)
-            VALUES (?, ?, ?, ?)` ,
-      args: [id, data.productoId, costoManoObraSanitized, JSON.stringify(data.items)]
+      sql: `INSERT INTO recetas (id, producto_id, costo_mano_obra, items, rendimiento_base)
+            VALUES (?, ?, ?, ?, ?)` ,
+      args: [id, data.productoId, costoManoObraSanitized, JSON.stringify(data.items), rendimientoBase]
     });
 
     return {
       id,
       productoId: data.productoId,
       items: data.items,
-      costoManoObra: costoManoObraSanitized ?? undefined
+      costoManoObra: costoManoObraSanitized ?? undefined,
+      rendimientoBase
     };
   }
 
   public async listarProductos(): Promise<Producto[]> {
     const { rows } = await this.client.execute(
-      "SELECT id, nombre, stock_disponible, precio_unitario, precio_venta FROM productos ORDER BY nombre"
+      "SELECT id, nombre, stock_disponible, precio_unitario, precio_venta, categoria_id FROM productos ORDER BY nombre"
     );
     return rows.map((row) => this.mapProductoRow(row));
   }
@@ -106,18 +111,20 @@ export class ProductionService {
       nombre: data.nombre.trim(),
       stockDisponible: data.stockDisponible ?? 0,
       precioUnitario: data.precioUnitario,
-      precioVenta: data.precioVenta
+      precioVenta: data.precioVenta,
+      categoriaId: data.categoriaId
     };
 
     await this.client.execute({
-      sql: `INSERT INTO productos (id, nombre, stock_disponible, precio_unitario, precio_venta)
-            VALUES (?, ?, ?, ?, ?)` ,
+      sql: `INSERT INTO productos (id, nombre, stock_disponible, precio_unitario, precio_venta, categoria_id)
+            VALUES (?, ?, ?, ?, ?, ?)` ,
       args: [
         producto.id,
         producto.nombre,
         producto.stockDisponible,
         producto.precioUnitario ?? null,
-        producto.precioVenta ?? null
+        producto.precioVenta ?? null,
+        producto.categoriaId ?? null
       ]
     });
 
@@ -133,13 +140,14 @@ export class ProductionService {
 
     await this.client.execute({
       sql: `UPDATE productos
-            SET nombre = ?, stock_disponible = ?, precio_unitario = ?, precio_venta = ?
+            SET nombre = ?, stock_disponible = ?, precio_unitario = ?, precio_venta = ?, categoria_id = ?
             WHERE id = ?`,
       args: [
         updated.nombre,
         updated.stockDisponible,
         updated.precioUnitario ?? null,
         updated.precioVenta ?? null,
+        updated.categoriaId ?? null,
         id
       ]
     });
@@ -163,14 +171,20 @@ export class ProductionService {
     });
   }
 
-  public async registrarProduccion(recetaId: string, cantidadProducida: number): Promise<ProductionRecord> {
-    if (cantidadProducida <= 0) {
-      throw new Error("La cantidad producida debe ser mayor a cero.");
+  public async registrarProduccion(recetaId: string, cantidadTandas: number): Promise<ProductionRecord> {
+    if (cantidadTandas <= 0) {
+      throw new Error("La cantidad de tandas debe ser mayor a cero.");
+    }
+
+    const tandas = Math.floor(cantidadTandas);
+    if (tandas <= 0) {
+      throw new Error("La cantidad de tandas debe ser un entero positivo.");
     }
 
     const record = await withTursoTransaction(async (tx) => {
       const receta = await this.fetchRecetaById(recetaId, tx);
       const producto = await this.fetchProductoById(receta.productoId, tx);
+      const unidadesProducidas = receta.rendimientoBase * tandas;
 
       const insumoIds = receta.items.map((item) => item.insumoId);
       const insumos = await this.fetchInsumosByIds(insumoIds, tx);
@@ -181,7 +195,7 @@ export class ProductionService {
           throw new Error(`Insumo ${item.insumoId} no encontrado.`);
         }
 
-        const requerido = item.cantidad * cantidadProducida;
+        const requerido = item.cantidad * tandas;
         if (insumo.stock < requerido) {
           throw new Error(`Stock insuficiente para el insumo ${insumo.nombre}.`);
         }
@@ -203,22 +217,24 @@ export class ProductionService {
         });
       }
 
-      const nuevoStockProducto = producto.stockDisponible + cantidadProducida;
+      const nuevoStockProducto = producto.stockDisponible + unidadesProducidas;
       await tx.execute({
         sql: "UPDATE productos SET stock_disponible = ? WHERE id = ?",
         args: [nuevoStockProducto, producto.id]
       });
 
       const costoManoObraCents = toCents(receta.costoManoObra ?? 0);
-      const costoTotalCents = costoIngredientesCents + costoManoObraCents;
+      const costoManoObraTotalCents = Math.round(costoManoObraCents * tandas);
+      const costoTotalCents = costoIngredientesCents + costoManoObraTotalCents;
 
       const registro: ProductionRecord = {
         id: randomUUID(),
         recetaId,
         productoId: producto.id,
-        cantidadProducida,
+        cantidadTandas: tandas,
+        cantidadProducida: unidadesProducidas,
         costoIngredientes: fromCents(costoIngredientesCents),
-        costoManoObra: fromCents(costoManoObraCents),
+        costoManoObra: fromCents(costoManoObraTotalCents),
         costoTotal: fromCents(costoTotalCents),
         fecha: new Date().toISOString()
       };
@@ -232,7 +248,7 @@ export class ProductionService {
 
   private async fetchRecetaById(id: string, executor: SqlExecutor = this.client): Promise<Receta> {
     const { rows } = await executor.execute({
-      sql: "SELECT id, producto_id, costo_mano_obra, items FROM recetas WHERE id = ?",
+      sql: "SELECT id, producto_id, costo_mano_obra, items, rendimiento_base FROM recetas WHERE id = ?",
       args: [id]
     });
 
@@ -245,7 +261,7 @@ export class ProductionService {
 
   private async fetchProductoById(id: string, executor: SqlExecutor = this.client): Promise<Producto> {
     const { rows } = await executor.execute({
-      sql: "SELECT id, nombre, stock_disponible, precio_unitario, precio_venta FROM productos WHERE id = ?",
+      sql: "SELECT id, nombre, stock_disponible, precio_unitario, precio_venta, categoria_id FROM productos WHERE id = ?",
       args: [id]
     });
 
@@ -299,7 +315,8 @@ export class ProductionService {
         row.costo_mano_obra !== null && row.costo_mano_obra !== undefined
           ? Number(row.costo_mano_obra)
           : undefined,
-      items: this.parseItems(row.items)
+      items: this.parseItems(row.items),
+      rendimientoBase: Number(row.rendimiento_base ?? 1) || 1
     };
   }
 
@@ -315,6 +332,10 @@ export class ProductionService {
       precioVenta:
         row.precio_venta !== null && row.precio_venta !== undefined
           ? Number(row.precio_venta)
+          : undefined,
+      categoriaId:
+        row.categoria_id !== null && row.categoria_id !== undefined
+          ? String(row.categoria_id)
           : undefined
     };
   }

@@ -126,7 +126,7 @@ const normalizeVenta = async (row: VentaRow, client = getTursoClient()): Promise
   }
 };
 
-const parseArray = <T>(value: string, label: string): T[] => {
+export const parseArray = <T>(value: string, label: string): T[] => {
   if (!value.trim()) {
     return [];
   }
@@ -142,7 +142,7 @@ const parseArray = <T>(value: string, label: string): T[] => {
   }
 };
 
-const validateItem = (item: VentaItemLegacy, ventaId: string): void => {
+export const validateItem = (item: VentaItemLegacy, ventaId: string): void => {
   if (!item?.productoId) {
     throw new Error(`Venta ${ventaId}: item sin productoId.`);
   }
@@ -154,7 +154,7 @@ const validateItem = (item: VentaItemLegacy, ventaId: string): void => {
   }
 };
 
-const validatePago = (pago: VentaPagoLegacy, ventaId: string): void => {
+export const validatePago = (pago: VentaPagoLegacy, ventaId: string): void => {
   if (!pago?.moneda) {
     throw new Error(`Venta ${ventaId}: pago sin moneda.`);
   }

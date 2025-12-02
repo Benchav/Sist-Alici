@@ -7,6 +7,7 @@ import { configRouter } from "./infrastructure/web/controllers/config.controller
 import { inventoryRouter } from "./infrastructure/web/controllers/inventory.controller";
 import { productionRouter } from "./infrastructure/web/controllers/production.controller";
 import { salesRouter } from "./infrastructure/web/controllers/sales.controller";
+import { wasteRouter } from "./infrastructure/web/controllers/waste.controller";
 
 const app = express();
 
@@ -19,6 +20,7 @@ app.use("/api/config", configRouter);
 app.use("/api/inventory", inventoryRouter);
 app.use("/api/production", productionRouter);
 app.use("/api/sales", salesRouter);
+app.use("/api/waste", wasteRouter);
 
 app.get("/health", (_req: Request, res: Response) => {
 	res.json({ status: "ok" });

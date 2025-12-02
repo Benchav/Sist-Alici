@@ -1,7 +1,9 @@
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { SalesService } from "../../../application/services/sales.service";
+import type { EncargoEstado } from "../../../core/entities/encargo.entity";
 import { Role } from "../../../core/entities/usuario.entity";
+import { toCents } from "../../../core/utils/currency";
 import { PdfService } from "../../reports/pdf.service";
 import { ExcelService } from "../../reports/excel.service";
 import { authenticateJWT, authorizeRoles } from "../middlewares/auth.middleware";
@@ -21,27 +23,44 @@ const salesService = Number.isFinite(tasaCambioEnv) && tasaCambioEnv > 0
 const pdfService = new PdfService();
 const excelService = new ExcelService();
 
+const paymentSchema = z.object({
+  moneda: z.string().min(1, "La moneda es requerida"),
+  cantidad: z.number().positive("La cantidad debe ser mayor a cero"),
+  tasa: z.number().positive("La tasa debe ser mayor a cero").optional()
+});
+
+const saleItemSchema = z.object({
+  productoId: z.string().min(1, "productoId es requerido"),
+  cantidad: z
+    .number()
+    .int("La cantidad debe ser entera")
+    .positive("La cantidad debe ser mayor a cero")
+});
+
 const checkoutSchema = z.object({
-  items: z
-    .array(
-      z.object({
-        productoId: z.string().min(1, "productoId es requerido"),
-        cantidad: z
-          .number()
-          .int("La cantidad debe ser entera")
-          .positive("La cantidad debe ser mayor a cero")
-      })
-    )
-    .nonempty("Debe incluir al menos un producto."),
-  pagos: z
-    .array(
-      z.object({
-        moneda: z.string().min(1, "La moneda es requerida"),
-        cantidad: z.number().positive("La cantidad debe ser mayor a cero"),
-        tasa: z.number().positive("La tasa debe ser mayor a cero").optional()
-      })
-    )
-    .nonempty("Debe registrar al menos un pago.")
+  items: z.array(saleItemSchema).nonempty("Debe incluir al menos un producto."),
+  pagos: z.array(paymentSchema).nonempty("Debe registrar al menos un pago."),
+  descuento: z.number().nonnegative("El descuento no puede ser negativo").optional()
+});
+
+const createOrderSchema = z.object({
+  cliente: z.string().min(3, "El nombre del cliente es requerido"),
+  fechaEntrega: z.string().min(4, "La fecha de entrega es requerida"),
+  items: z.array(saleItemSchema).nonempty("Debe incluir al menos un producto.")
+});
+
+const registerDepositSchema = z.object({
+  monto: z.number().positive("El monto debe ser mayor a cero"),
+  medioPago: z.string().min(2).optional()
+});
+
+const finalizeOrderSchema = z.object({
+  pagos: z.array(paymentSchema).optional(),
+  descuento: z.number().nonnegative().optional()
+});
+
+const encargoQuerySchema = z.object({
+  estado: z.enum(["PENDIENTE", "ENTREGADO", "CANCELADO"]).optional()
 });
 
 const parseDateRange = (query: Request["query"]): { from?: Date; to?: Date } => {
@@ -244,6 +263,253 @@ salesRouter.get(
 
 /**
  * @swagger
+ * /api/sales/orders:
+ *   get:
+ *     summary: Listar encargos registrados
+ *     tags: [Sales]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: estado
+ *         schema:
+ *           type: string
+ *           enum: [PENDIENTE, ENTREGADO, CANCELADO]
+ *         required: false
+ *     responses:
+ *       200:
+ *         description: Lista de encargos
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/EncargoListResponse'
+ */
+salesRouter.get(
+  "/orders",
+  authenticateJWT,
+  authorizeRoles(Role.ADMIN, Role.CAJERO, Role.PANADERO),
+  async (req: Request, res: Response) => {
+    try {
+      const parsed = encargoQuerySchema.safeParse({
+        estado: Array.isArray(req.query.estado) ? req.query.estado[0] : req.query.estado
+      });
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: "Error de validación",
+          details: parsed.error.flatten()
+        });
+      }
+
+      const estado = parsed.data.estado as EncargoEstado | undefined;
+      const data = await salesService.listarEncargos(estado);
+      return res.status(200).json({ data });
+    } catch (error) {
+      return handleControllerError(error, res);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/sales/orders/{id}:
+ *   get:
+ *     summary: Obtener detalle de un encargo
+ *     tags: [Sales]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Encargo encontrado
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/EncargoResponse'
+ */
+salesRouter.get(
+  "/orders/:id",
+  authenticateJWT,
+  authorizeRoles(Role.ADMIN, Role.CAJERO, Role.PANADERO),
+  async (req: Request, res: Response) => {
+    try {
+      const data = await salesService.obtenerEncargoPorId(req.params.id);
+      return res.status(200).json({ data });
+    } catch (error) {
+      return handleControllerError(error, res);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/sales/orders:
+ *   post:
+ *     summary: Crear un nuevo encargo
+ *     tags: [Sales]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/EncargoRequest'
+ *     responses:
+ *       201:
+ *         description: Encargo creado
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/EncargoResponse'
+ */
+salesRouter.post(
+  "/orders",
+  authenticateJWT,
+  authorizeRoles(Role.ADMIN, Role.CAJERO),
+  async (req: Request, res: Response) => {
+    const parsed = createOrderSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Error de validación",
+        details: parsed.error.flatten()
+      });
+    }
+
+    try {
+      const { cliente, fechaEntrega, items } = parsed.data;
+      const data = await salesService.crearEncargo(cliente, fechaEntrega, items);
+      return res.status(201).json({ data });
+    } catch (error) {
+      return handleControllerError(error, res);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/sales/orders/{id}/deposits:
+ *   post:
+ *     summary: Registrar un abono para un encargo
+ *     tags: [Sales]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/EncargoDepositRequest'
+ *     responses:
+ *       201:
+ *         description: Abono registrado
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/EncargoResponse'
+ */
+salesRouter.post(
+  "/orders/:id/deposits",
+  authenticateJWT,
+  authorizeRoles(Role.ADMIN, Role.CAJERO),
+  async (req: Request, res: Response) => {
+    const parsed = registerDepositSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Error de validación",
+        details: parsed.error.flatten()
+      });
+    }
+
+    try {
+      const data = await salesService.registrarAbono(
+        req.params.id,
+        parsed.data.monto,
+        parsed.data.medioPago
+      );
+      return res.status(201).json({ data });
+    } catch (error) {
+      return handleControllerError(error, res);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/sales/orders/{id}/finalize:
+ *   post:
+ *     summary: Finalizar un encargo y generar la venta asociada
+ *     tags: [Sales]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/EncargoFinalizeRequest'
+ *     responses:
+ *       201:
+ *         description: Encargo finalizado
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/EncargoFinalizeResponse'
+ */
+salesRouter.post(
+  "/orders/:id/finalize",
+  authenticateJWT,
+  authorizeRoles(Role.ADMIN, Role.CAJERO),
+  async (req: Request, res: Response) => {
+    const parsed = finalizeOrderSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Error de validación",
+        details: parsed.error.flatten()
+      });
+    }
+
+    try {
+      const usuarioId = req.user?.id ?? req.user?.sub;
+      if (!usuarioId) {
+        return res.status(401).json({ error: "Usuario no autenticado." });
+      }
+
+      const pagos = parsed.data.pagos ?? [];
+      const descuentoCents = parsed.data.descuento ? toCents(parsed.data.descuento) : 0;
+      const resultado = await salesService.finalizarEncargo(
+        req.params.id,
+        pagos,
+        usuarioId,
+        { descuentoCents }
+      );
+      return res
+        .status(201)
+        .json({ data: resultado.venta, cambio: resultado.cambio, encargo: resultado.encargo });
+    } catch (error) {
+      return handleControllerError(error, res);
+    }
+  }
+);
+
+/**
+ * @swagger
  * /api/sales/{id}:
  *   delete:
  *     summary: Anular una venta y revertir inventario
@@ -326,13 +592,16 @@ salesRouter.post(
   }
 
     try {
-      const { items, pagos } = parsed.data;
+      const { items, pagos, descuento } = parsed.data;
       const usuarioId = req.user?.id ?? req.user?.sub;
       if (!usuarioId) {
         return res.status(401).json({ error: "Usuario no autenticado." });
       }
 
-      const { venta, cambio } = await salesService.procesarVenta(items, pagos, usuarioId);
+      const descuentoCents = descuento ? toCents(descuento) : 0;
+      const { venta, cambio } = await salesService.procesarVenta(items, pagos, usuarioId, {
+        descuentoCents
+      });
       return res.status(201).json({ data: venta, cambio });
     } catch (error) {
       return handleControllerError(error, res);

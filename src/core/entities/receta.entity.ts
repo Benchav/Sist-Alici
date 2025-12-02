@@ -9,4 +9,5 @@ export interface Receta extends Identifiable {
   productoId: string;
   items: RecetaItem[];
   costoManoObra?: number;
+  rendimientoBase: number;
 }

@@ -10,6 +10,7 @@
     "start": "node dist/server.js",
     "lint": "tsc --noEmit",
     "migrate": "node scripts/run-migrations.js",
+    "seed:api": "tsx src/scripts/seed-api.ts",
     "backfill:ventas": "tsx scripts/normalize-ventas.ts",
     "test:sales": "tsx tests/sales.normalize.test.ts"
   },

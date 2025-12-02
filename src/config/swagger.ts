@@ -44,7 +44,8 @@ const swaggerOptions: Options = {
                 nombre: { type: "string" },
                 unidad: { type: "string", example: "saco" },
                 stock: { type: "number", format: "double" },
-                costoPromedio: { type: "number", format: "double" }
+                costoPromedio: { type: "number", format: "double" },
+                proveedorPrincipalId: { type: "string", nullable: true }
               }
             }
           ]
@@ -56,7 +57,8 @@ const swaggerOptions: Options = {
             nombre: { type: "string", example: "Harina integral" },
             unidad: { type: "string", example: "kg" },
             stock: { type: "number", example: 20 },
-            costoPromedio: { type: "number", example: 550 }
+            costoPromedio: { type: "number", example: 550 },
+            proveedorPrincipalId: { type: "string", nullable: true }
           }
         },
         InsumoUpdateRequest: {
@@ -75,6 +77,15 @@ const swaggerOptions: Options = {
             insumoId: { type: "string" },
             cantidad: { type: "number", example: 10 },
             costoTotal: { type: "number", example: 500 }
+          }
+        },
+        FinishedGoodsPurchaseRequest: {
+          type: "object",
+          required: ["productoId", "cantidad", "costoTotal"],
+          properties: {
+            productoId: { type: "string" },
+            cantidad: { type: "number", example: 25 },
+            costoTotal: { type: "number", example: 7500 }
           }
         },
         PurchaseResponse: {
@@ -107,6 +118,7 @@ const swaggerOptions: Options = {
               properties: {
                 productoId: { type: "string" },
                 costoManoObra: { type: "number" },
+                rendimientoBase: { type: "integer", minimum: 1 },
                 items: {
                   type: "array",
                   items: { $ref: "#/components/schemas/RecetaItem" }
@@ -132,10 +144,10 @@ const swaggerOptions: Options = {
         },
         ProductionRequest: {
           type: "object",
-          required: ["recetaId", "cantidad"],
+          required: ["recetaId", "tandas"],
           properties: {
             recetaId: { type: "string" },
-            cantidad: { type: "integer", example: 5 }
+            tandas: { type: "integer", example: 5 }
           }
         },
         ProductionResponse: {
@@ -165,7 +177,8 @@ const swaggerOptions: Options = {
                 nombre: { type: "string" },
                 stockDisponible: { type: "number" },
                 precioUnitario: { type: "number" },
-                precioVenta: { type: "number" }
+                precioVenta: { type: "number" },
+                categoriaId: { type: "string", nullable: true }
               }
             }
           ]
@@ -177,7 +190,8 @@ const swaggerOptions: Options = {
             nombre: { type: "string" },
             stockDisponible: { type: "number" },
             precioUnitario: { type: "number" },
-            precioVenta: { type: "number" }
+            precioVenta: { type: "number" },
+            categoriaId: { type: "string", nullable: true }
           }
         },
         ActualizarProductoRequest: {
@@ -198,6 +212,210 @@ const swaggerOptions: Options = {
             }
           }
         },
+        Categoria: {
+          allOf: [
+            { $ref: "#/components/schemas/Identifiable" },
+            {
+              type: "object",
+              properties: {
+                nombre: { type: "string" },
+                tipo: { type: "string", enum: ["PRODUCCION", "REVENTA", "INSUMO"] }
+              }
+            }
+          ]
+        },
+        CategoriaRequest: {
+          type: "object",
+          required: ["nombre", "tipo"],
+          properties: {
+            nombre: { type: "string" },
+            tipo: { type: "string", enum: ["PRODUCCION", "REVENTA", "INSUMO"] }
+          }
+        },
+        CategoriaUpdateRequest: {
+          allOf: [{ $ref: "#/components/schemas/CategoriaRequest" }]
+        },
+        CategoriaResponse: {
+          type: "object",
+          properties: {
+            data: { $ref: "#/components/schemas/Categoria" }
+          }
+        },
+        CategoriaListResponse: {
+          type: "object",
+          properties: {
+            data: {
+              type: "array",
+              items: { $ref: "#/components/schemas/Categoria" }
+            }
+          }
+        },
+        Proveedor: {
+          allOf: [
+            { $ref: "#/components/schemas/Identifiable" },
+            {
+              type: "object",
+              properties: {
+                nombre: { type: "string" },
+                frecuenciaCredito: { type: "string", nullable: true },
+                contacto: { type: "string", nullable: true }
+              }
+            }
+          ]
+        },
+        ProveedorRequest: {
+          type: "object",
+          required: ["nombre"],
+          properties: {
+            nombre: { type: "string" },
+            frecuenciaCredito: { type: "string", nullable: true },
+            contacto: { type: "string", nullable: true }
+          }
+        },
+        ProveedorUpdateRequest: {
+          allOf: [{ $ref: "#/components/schemas/ProveedorRequest" }]
+        },
+        ProveedorResponse: {
+          type: "object",
+          properties: {
+            data: { $ref: "#/components/schemas/Proveedor" }
+          }
+        },
+        ProveedorListResponse: {
+          type: "object",
+          properties: {
+            data: {
+              type: "array",
+              items: { $ref: "#/components/schemas/Proveedor" }
+            }
+          }
+        },
+        Descarte: {
+          allOf: [
+            { $ref: "#/components/schemas/Identifiable" },
+            {
+              type: "object",
+              properties: {
+                productoId: { type: "string" },
+                cantidad: { type: "integer" },
+                motivo: { type: "string", nullable: true },
+                fecha: { type: "string", format: "date-time" }
+              }
+            }
+          ]
+        },
+        EncargoItem: {
+          allOf: [
+            { $ref: "#/components/schemas/Identifiable" },
+            {
+              type: "object",
+              properties: {
+                encargoId: { type: "string" },
+                productoId: { type: "string" },
+                cantidad: { type: "integer" },
+                precioEstimadoCents: { type: "integer" }
+              }
+            }
+          ]
+        },
+        EncargoAbono: {
+          allOf: [
+            { $ref: "#/components/schemas/Identifiable" },
+            {
+              type: "object",
+              properties: {
+                encargoId: { type: "string" },
+                montoCents: { type: "integer" },
+                fecha: { type: "string", format: "date-time" },
+                medioPago: { type: "string", nullable: true }
+              }
+            }
+          ]
+        },
+        Encargo: {
+          allOf: [
+            { $ref: "#/components/schemas/Identifiable" },
+            {
+              type: "object",
+              properties: {
+                cliente: { type: "string" },
+                fechaEntrega: { type: "string", format: "date-time" },
+                totalEstimadoCents: { type: "integer" },
+                estado: { type: "string", enum: ["PENDIENTE", "ENTREGADO", "CANCELADO"] },
+                ventaId: { type: "string", nullable: true },
+                createdAt: { type: "string", format: "date-time", nullable: true },
+                items: {
+                  type: "array",
+                  items: { $ref: "#/components/schemas/EncargoItem" }
+                },
+                abonos: {
+                  type: "array",
+                  items: { $ref: "#/components/schemas/EncargoAbono" }
+                }
+              }
+            }
+          ]
+        },
+        EncargoRequest: {
+          type: "object",
+          required: ["cliente", "fechaEntrega", "items"],
+          properties: {
+            cliente: { type: "string" },
+            fechaEntrega: { type: "string", format: "date-time" },
+            items: {
+              type: "array",
+              items: {
+                type: "object",
+                required: ["productoId", "cantidad"],
+                properties: {
+                  productoId: { type: "string" },
+                  cantidad: { type: "integer" }
+                }
+              }
+            }
+          }
+        },
+        EncargoDepositRequest: {
+          type: "object",
+          required: ["monto"],
+          properties: {
+            monto: { type: "number" },
+            medioPago: { type: "string", nullable: true }
+          }
+        },
+        EncargoFinalizeRequest: {
+          type: "object",
+          properties: {
+            pagos: {
+              type: "array",
+              items: { $ref: "#/components/schemas/DetallePago" }
+            },
+            descuento: { type: "number", nullable: true }
+          }
+        },
+        EncargoResponse: {
+          type: "object",
+          properties: {
+            data: { $ref: "#/components/schemas/Encargo" }
+          }
+        },
+        EncargoListResponse: {
+          type: "object",
+          properties: {
+            data: {
+              type: "array",
+              items: { $ref: "#/components/schemas/Encargo" }
+            }
+          }
+        },
+        EncargoFinalizeResponse: {
+          type: "object",
+          properties: {
+            data: { $ref: "#/components/schemas/Venta" },
+            encargo: { $ref: "#/components/schemas/Encargo" },
+            cambio: { type: "number" }
+          }
+        },
         UpsertRecetaRequest: {
           type: "object",
           required: ["productoId", "items"],
@@ -205,6 +423,7 @@ const swaggerOptions: Options = {
             id: { type: "string", nullable: true },
             productoId: { type: "string" },
             costoManoObra: { type: "number" },
+            rendimientoBase: { type: "integer", minimum: 1 },
             items: {
               type: "array",
               items: { $ref: "#/components/schemas/RecetaItem" }
@@ -234,6 +453,7 @@ const swaggerOptions: Options = {
               type: "object",
               properties: {
                 totalNIO: { type: "number" },
+                totalPagadoNIO: { type: "number", nullable: true },
                 pagos: {
                   type: "array",
                   items: { $ref: "#/components/schemas/DetallePago" }
@@ -242,7 +462,11 @@ const swaggerOptions: Options = {
                   type: "array",
                   items: { $ref: "#/components/schemas/VentaItem" }
                 },
-                fecha: { type: "string", format: "date-time" }
+                fecha: { type: "string", format: "date-time" },
+                estado: { type: "string", nullable: true },
+                descuentoNIO: { type: "number", nullable: true },
+                tipoVenta: { type: "string", enum: ["DIRECTA", "ENCARGO"], nullable: true },
+                encargoId: { type: "string", nullable: true }
               }
             }
           ]
@@ -265,7 +489,8 @@ const swaggerOptions: Options = {
             pagos: {
               type: "array",
               items: { $ref: "#/components/schemas/DetallePago" }
-            }
+            },
+            descuento: { type: "number", nullable: true }
           }
         },
         SalesCheckoutResponse: {
