@@ -1,32 +1,45 @@
 import { randomUUID } from "node:crypto";
 import type { Insumo } from "../../core/entities/insumo.entity";
 import type { Producto } from "../../core/entities/producto.entity";
-import type { Receta } from "../../core/entities/receta.entity";
 import { fromCents, toCents } from "../../core/utils/currency";
 import { getTursoClient, withTursoTransaction } from "../../infrastructure/database/turso";
 
 interface ProductionRecord {
   id: string;
-  recetaId: string;
   productoId: string;
-  cantidadTandas: number;
-  cantidadProducida: number;
+  volumenSolicitado: number;
+  unidadVolumen: string;
+  factorReceta: number;
   costoIngredientes: number;
   costoManoObra: number;
   costoTotal: number;
+  costoUnitario?: number;
+  insumosConsumidos?: Array<{
+    insumoId: string;
+    cantidad: number;
+    costoUnitario: number;
+    costoTotal: number;
+  }>;
   fecha: string;
 }
 
-type CreateProductInput = Pick<Producto, "nombre"> & Partial<Omit<Producto, "id" | "nombre">>;
-type UpdateProductInput = Partial<Omit<Producto, "id">>;
-type UpsertRecetaInput = {
+type ProductionBatchInput = {
   id?: string;
   productoId: string;
-  items: Receta["items"];
+  rendimientoBase: number;
   costoManoObra?: number;
-  rendimientoBase?: number;
+  items: Array<{ insumoId: string; cantidad: number }>;
 };
 
+type DailyProductionLotInput = {
+  productoId: string;
+  cantidadProducida: number;
+  costoManoObra?: number;
+  insumos: Array<{ insumoId: string; cantidad: number }>;
+};
+
+type CreateProductInput = Pick<Producto, "nombre"> & Partial<Omit<Producto, "id" | "nombre">>;
+type UpdateProductInput = Partial<Omit<Producto, "id">>;
 type SqlExecutor = {
   execute: (statement: string | { sql: string; args?: Array<string | number | null> }) => Promise<any>;
 };
@@ -39,59 +52,6 @@ export class ProductionService {
     return [...this.historial].sort(
       (a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()
     );
-  }
-
-  public async listarRecetas(): Promise<Receta[]> {
-    const { rows } = await this.client.execute(
-      "SELECT id, producto_id, costo_mano_obra, items, rendimiento_base FROM recetas ORDER BY id"
-    );
-    return rows.map((row) => this.mapRecetaRow(row));
-  }
-
-  public findRecetaById(id: string): Promise<Receta> {
-    return this.fetchRecetaById(id);
-  }
-
-  public async upsertReceta(data: UpsertRecetaInput): Promise<Receta> {
-    await this.findProductById(data.productoId);
-    await this.ensureInsumosExist(data.items.map((item) => item.insumoId));
-
-    const costoManoObraSanitized =
-      data.costoManoObra === undefined || data.costoManoObra === null
-        ? null
-        : fromCents(toCents(data.costoManoObra));
-    const rendimientoBase = Math.max(1, Math.floor(Number(data.rendimientoBase ?? 1)));
-
-    if (data.id) {
-      await this.client.execute({
-        sql: `UPDATE recetas
-              SET producto_id = ?, costo_mano_obra = ?, items = ?, rendimiento_base = ?
-              WHERE id = ?`,
-        args: [
-          data.productoId,
-          costoManoObraSanitized,
-          JSON.stringify(data.items),
-          rendimientoBase,
-          data.id
-        ]
-      });
-      return this.findRecetaById(data.id);
-    }
-
-    const id = `REC-${randomUUID()}`;
-    await this.client.execute({
-      sql: `INSERT INTO recetas (id, producto_id, costo_mano_obra, items, rendimiento_base)
-            VALUES (?, ?, ?, ?, ?)` ,
-      args: [id, data.productoId, costoManoObraSanitized, JSON.stringify(data.items), rendimientoBase]
-    });
-
-    return {
-      id,
-      productoId: data.productoId,
-      items: data.items,
-      costoManoObra: costoManoObraSanitized ?? undefined,
-      rendimientoBase
-    };
   }
 
   public async listarProductos(): Promise<Producto[]> {
@@ -164,99 +124,201 @@ export class ProductionService {
     if ((result.rowsAffected ?? 0) === 0) {
       throw new Error("Producto no encontrado.");
     }
-
-    await this.client.execute({
-      sql: "DELETE FROM recetas WHERE producto_id = ?",
-      args: [id]
-    });
   }
 
-  public async registrarProduccion(recetaId: string, cantidadTandas: number): Promise<ProductionRecord> {
-    if (cantidadTandas <= 0) {
-      throw new Error("La cantidad de tandas debe ser mayor a cero.");
+  public async registrarProduccionPorVolumen(batchData: ProductionBatchInput[]): Promise<ProductionRecord[]> {
+    if (!Array.isArray(batchData) || !batchData.length) {
+      throw new Error("Debe proporcionar al menos un lote de producción.");
     }
 
-    const tandas = Math.floor(cantidadTandas);
-    if (tandas <= 0) {
-      throw new Error("La cantidad de tandas debe ser un entero positivo.");
-    }
+    const resultados: ProductionRecord[] = [];
 
-    const record = await withTursoTransaction(async (tx) => {
-      const receta = await this.fetchRecetaById(recetaId, tx);
-      const producto = await this.fetchProductoById(receta.productoId, tx);
-      const unidadesProducidas = receta.rendimientoBase * tandas;
+    for (const lote of batchData) {
+      if (!lote?.productoId) {
+        throw new Error("Cada lote debe especificar un producto.");
+      }
+      if (!Array.isArray(lote.items) || !lote.items.length) {
+        throw new Error("Cada lote debe incluir insumos a consumir.");
+      }
+      if (!Number.isFinite(lote.rendimientoBase) || lote.rendimientoBase <= 0) {
+        throw new Error("El rendimiento base debe ser mayor a cero.");
+      }
 
-      const insumoIds = receta.items.map((item) => item.insumoId);
-      const insumos = await this.fetchInsumosByIds(insumoIds, tx);
+      const registro = await withTursoTransaction(async (tx) => {
+        const producto = await this.fetchProductoById(lote.productoId, tx);
+        const insumoIds = lote.items.map((item) => item.insumoId);
+        const insumos = await this.fetchInsumosByIds(insumoIds, tx);
 
-      const consumos = receta.items.map((item) => {
-        const insumo = insumos.get(item.insumoId);
-        if (!insumo) {
-          throw new Error(`Insumo ${item.insumoId} no encontrado.`);
+        const consumos = lote.items.map((item) => {
+          const requerido = Number(item.cantidad);
+          if (!Number.isFinite(requerido) || requerido <= 0) {
+            throw new Error("La cantidad de cada insumo debe ser mayor a cero.");
+          }
+
+          const insumo = insumos.get(item.insumoId);
+          if (!insumo) {
+            throw new Error(`Insumo ${item.insumoId} no encontrado.`);
+          }
+          if (insumo.stock < requerido) {
+            throw new Error(`Stock insuficiente para el insumo ${insumo.nombre}.`);
+          }
+
+          return { insumo, requerido };
+        });
+
+        const costoIngredientesCents = consumos.reduce((acc, { insumo, requerido }) => {
+          const unitCostCents = toCents(insumo.costoPromedio);
+          return acc + Math.round(unitCostCents * requerido);
+        }, 0);
+
+        for (const { insumo, requerido } of consumos) {
+          const nuevoStock = insumo.stock - requerido;
+          await tx.execute({
+            sql: "UPDATE insumos SET stock = ? WHERE id = ?",
+            args: [nuevoStock, insumo.id]
+          });
         }
 
-        const requerido = item.cantidad * tandas;
-        if (insumo.stock < requerido) {
-          throw new Error(`Stock insuficiente para el insumo ${insumo.nombre}.`);
-        }
-
-        return { insumo, requerido };
-      });
-
-      const costoIngredientesCents = consumos.reduce((acc, { insumo, requerido }) => {
-        const unitCostCents = toCents(insumo.costoPromedio);
-        const totalInsumoCents = Math.round(requerido * unitCostCents);
-        return acc + totalInsumoCents;
-      }, 0);
-
-      for (const { insumo, requerido } of consumos) {
-        const nuevoStock = insumo.stock - requerido;
+        const nuevoStockProducto = producto.stockDisponible + lote.rendimientoBase;
         await tx.execute({
-          sql: "UPDATE insumos SET stock = ? WHERE id = ?",
-          args: [nuevoStock, insumo.id]
+          sql: "UPDATE productos SET stock_disponible = ? WHERE id = ?",
+          args: [nuevoStockProducto, producto.id]
+        });
+
+        const costoManoObraTotalCents = toCents(lote.costoManoObra ?? 0);
+        const costoTotalCents = costoIngredientesCents + costoManoObraTotalCents;
+        const costoUnitarioCents = Math.round(costoTotalCents / lote.rendimientoBase);
+
+        const registro: ProductionRecord = {
+          id: randomUUID(),
+          productoId: producto.id,
+          volumenSolicitado: lote.rendimientoBase,
+          unidadVolumen: "UNIDADES",
+          factorReceta: 1,
+          costoIngredientes: fromCents(costoIngredientesCents),
+          costoManoObra: fromCents(costoManoObraTotalCents),
+          costoTotal: fromCents(costoTotalCents),
+          costoUnitario: fromCents(costoUnitarioCents),
+          fecha: new Date().toISOString()
+        };
+
+        return registro;
+      }, this.client);
+
+      this.historial.push(registro);
+      resultados.push(registro);
+    }
+
+    return resultados;
+  }
+
+  public async registrarProduccionDiaria(lotes: DailyProductionLotInput[]): Promise<ProductionRecord[]> {
+    if (!Array.isArray(lotes) || !lotes.length) {
+      throw new Error("Debe proporcionar al menos un lote para registrar la producción diaria.");
+    }
+
+    const registros = await withTursoTransaction(async (tx) => {
+      const productoStockCache = new Map<string, number>();
+      const insumoStockCache = new Map<string, number>();
+      const registrosLocales: ProductionRecord[] = [];
+
+      for (const lote of lotes) {
+        if (!lote?.productoId) {
+          throw new Error("Cada lote debe especificar un producto.");
+        }
+        if (!Array.isArray(lote.insumos) || !lote.insumos.length) {
+          throw new Error("Cada lote debe incluir al menos un insumo consumido.");
+        }
+
+        const cantidadProducida = Number(lote.cantidadProducida);
+        if (!Number.isFinite(cantidadProducida) || cantidadProducida <= 0) {
+          throw new Error("La cantidad producida debe ser mayor a cero.");
+        }
+
+        const costoManoObraCents = toCents(lote.costoManoObra ?? 0);
+        if (costoManoObraCents < 0) {
+          throw new Error("El costo de mano de obra no puede ser negativo.");
+        }
+
+        const producto = await this.fetchProductoById(lote.productoId, tx);
+        const insumoIds = lote.insumos.map((insumo) => insumo.insumoId);
+        const insumos = await this.fetchInsumosByIds(insumoIds, tx);
+
+        const consumos = lote.insumos.map((entrada) => {
+          const cantidad = Number(entrada.cantidad);
+          if (!Number.isFinite(cantidad) || cantidad <= 0) {
+            throw new Error("La cantidad consumida de cada insumo debe ser mayor a cero.");
+          }
+
+          const insumo = insumos.get(entrada.insumoId);
+          if (!insumo) {
+            throw new Error(`Insumo ${entrada.insumoId} no encontrado.`);
+          }
+
+          const stockActual = insumoStockCache.get(insumo.id) ?? insumo.stock;
+          if (stockActual < cantidad) {
+            throw new Error(`Stock insuficiente para el insumo ${insumo.nombre}.`);
+          }
+
+          const costoUnitarioCents = toCents(insumo.costoPromedio);
+          const costoTotalCents = Math.round(costoUnitarioCents * cantidad);
+
+          return {
+            insumo,
+            cantidad,
+            costoUnitarioCents,
+            costoTotalCents,
+            nuevoStock: stockActual - cantidad
+          };
+        });
+
+        for (const consumo of consumos) {
+          insumoStockCache.set(consumo.insumo.id, consumo.nuevoStock);
+          await tx.execute({
+            sql: "UPDATE insumos SET stock = ? WHERE id = ?",
+            args: [consumo.nuevoStock, consumo.insumo.id]
+          });
+        }
+
+        const costoIngredientesCents = consumos.reduce((acc, item) => acc + item.costoTotalCents, 0);
+        const costoTotalCents = costoIngredientesCents + costoManoObraCents;
+        const costoUnitarioCents = Math.round(costoTotalCents / cantidadProducida);
+
+        const stockProductoActual = productoStockCache.get(producto.id) ?? producto.stockDisponible;
+        const nuevoStockProducto = stockProductoActual + cantidadProducida;
+        productoStockCache.set(producto.id, nuevoStockProducto);
+
+        await tx.execute({
+          sql: "UPDATE productos SET stock_disponible = ?, precio_unitario = ? WHERE id = ?",
+          args: [nuevoStockProducto, fromCents(costoUnitarioCents), producto.id]
+        });
+
+        const fechaRegistro = new Date().toISOString();
+        registrosLocales.push({
+          id: randomUUID(),
+          productoId: producto.id,
+          volumenSolicitado: cantidadProducida,
+          unidadVolumen: "UNIDADES",
+          factorReceta: 1,
+          costoIngredientes: fromCents(costoIngredientesCents),
+          costoManoObra: fromCents(costoManoObraCents),
+          costoTotal: fromCents(costoTotalCents),
+          costoUnitario: fromCents(costoUnitarioCents),
+          insumosConsumidos: consumos.map((consumo) => ({
+            insumoId: consumo.insumo.id,
+            cantidad: consumo.cantidad,
+            costoUnitario: fromCents(consumo.costoUnitarioCents),
+            costoTotal: fromCents(consumo.costoTotalCents)
+          })),
+          fecha: fechaRegistro
         });
       }
 
-      const nuevoStockProducto = producto.stockDisponible + unidadesProducidas;
-      await tx.execute({
-        sql: "UPDATE productos SET stock_disponible = ? WHERE id = ?",
-        args: [nuevoStockProducto, producto.id]
-      });
-
-      const costoManoObraCents = toCents(receta.costoManoObra ?? 0);
-      const costoManoObraTotalCents = Math.round(costoManoObraCents * tandas);
-      const costoTotalCents = costoIngredientesCents + costoManoObraTotalCents;
-
-      const registro: ProductionRecord = {
-        id: randomUUID(),
-        recetaId,
-        productoId: producto.id,
-        cantidadTandas: tandas,
-        cantidadProducida: unidadesProducidas,
-        costoIngredientes: fromCents(costoIngredientesCents),
-        costoManoObra: fromCents(costoManoObraTotalCents),
-        costoTotal: fromCents(costoTotalCents),
-        fecha: new Date().toISOString()
-      };
-
-      return registro;
+      return registrosLocales;
     }, this.client);
 
-    this.historial.push(record);
-    return record;
-  }
-
-  private async fetchRecetaById(id: string, executor: SqlExecutor = this.client): Promise<Receta> {
-    const { rows } = await executor.execute({
-      sql: "SELECT id, producto_id, costo_mano_obra, items, rendimiento_base FROM recetas WHERE id = ?",
-      args: [id]
-    });
-
-    if (!rows.length) {
-      throw new Error("Receta no encontrada.");
-    }
-
-    return this.mapRecetaRow(rows[0]);
+    this.historial.push(...registros);
+    return registros;
   }
 
   private async fetchProductoById(id: string, executor: SqlExecutor = this.client): Promise<Producto> {
@@ -270,22 +332,6 @@ export class ProductionService {
     }
 
     return this.mapProductoRow(rows[0]);
-  }
-
-  private async ensureInsumosExist(ids: string[]): Promise<void> {
-    if (!ids.length) {
-      throw new Error("La receta debe incluir al menos un insumo.");
-    }
-
-    const placeholders = ids.map(() => "?").join(",");
-    const { rows } = await this.client.execute({
-      sql: `SELECT id FROM insumos WHERE id IN (${placeholders})`,
-      args: ids
-    });
-
-    if (rows.length !== new Set(ids).size) {
-      throw new Error("Uno o más insumos especificados no existen.");
-    }
   }
 
   private async fetchInsumosByIds(ids: string[], executor: SqlExecutor): Promise<Map<string, Insumo & { nombre: string }>> {
@@ -305,19 +351,6 @@ export class ProductionService {
       map.set(insumo.id, insumo);
     });
     return map;
-  }
-
-  private mapRecetaRow(row: Record<string, unknown>): Receta {
-    return {
-      id: String(row.id),
-      productoId: String(row.producto_id),
-      costoManoObra:
-        row.costo_mano_obra !== null && row.costo_mano_obra !== undefined
-          ? Number(row.costo_mano_obra)
-          : undefined,
-      items: this.parseItems(row.items),
-      rendimientoBase: Number(row.rendimiento_base ?? 1) || 1
-    };
   }
 
   private mapProductoRow(row: Record<string, unknown>): Producto {
@@ -350,16 +383,4 @@ export class ProductionService {
     };
   }
 
-  private parseItems(value: unknown): Receta["items"] {
-    if (typeof value !== "string" || !value.trim()) {
-      return [];
-    }
-
-    try {
-      const parsed = JSON.parse(value) as Receta["items"];
-      return parsed.map((item) => ({ ...item }));
-    } catch {
-      throw new Error("Formato inválido de items de receta.");
-    }
-  }
 }

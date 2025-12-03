@@ -8,18 +8,10 @@ import { authenticateJWT, authorizeRoles } from "../middlewares/auth.middleware"
  * @swagger
  * tags:
  *   name: Production
- *   description: Gestión de recetas y órdenes de producción
+ *   description: Gestión de producción y stock diario
  */
 const productionRouter = Router();
 const productionService = new ProductionService();
-
-const productionSchema = z.object({
-  recetaId: z.string().min(1, "recetaId es requerido"),
-  tandas: z
-    .number()
-    .int("Las tandas deben ser enteras")
-    .positive("Las tandas deben ser mayor a cero")
-});
 
 const productoSchema = z.object({
   nombre: z.string().min(3, "El nombre debe tener al menos 3 caracteres"),
@@ -31,22 +23,23 @@ const productoSchema = z.object({
 
 const updateProductoSchema = productoSchema.partial();
 
-const recetaItemSchema = z.object({
+const consumoItemSchema = z.object({
   insumoId: z.string().min(1, "insumoId es requerido"),
   cantidad: z.number().positive("La cantidad debe ser mayor a cero")
 });
 
-const upsertRecetaSchema = z.object({
-  id: z.string().min(1).optional(),
+const dailyProductionLotSchema = z.object({
   productoId: z.string().min(1, "productoId es requerido"),
+  cantidadProducida: z.number().positive("La cantidad producida debe ser mayor a cero"),
   costoManoObra: z.number().nonnegative("El costo de mano de obra no puede ser negativo").optional(),
-  rendimientoBase: z
-    .number()
-    .int("El rendimiento base debe ser entero")
-    .positive("El rendimiento base debe ser mayor a cero")
-    .optional(),
-  items: z.array(recetaItemSchema).min(1, "Debe proporcionar al menos un insumo")
+  insumos: z
+    .array(consumoItemSchema)
+    .min(1, "Debe proporcionar al menos un insumo consumido")
 });
+
+const dailyProductionSchema = z
+  .array(dailyProductionLotSchema)
+  .min(1, "Debe proporcionar al menos un lote diario");
 
 /**
  * @swagger
@@ -85,9 +78,9 @@ productionRouter.get(
 
 /**
  * @swagger
- * /api/production:
+ * /api/production/daily:
  *   post:
- *     summary: Registrar un lote de producción
+ *     summary: Registrar producción diaria basada en consumo real
  *     tags: [Production]
  *     security:
  *       - bearerAuth: []
@@ -96,14 +89,14 @@ productionRouter.get(
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/ProductionRequest'
+ *             $ref: '#/components/schemas/DailyProductionRequest'
  *     responses:
  *       201:
- *         description: Producción registrada
+ *         description: Producción diaria registrada
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/ProductionResponse'
+ *               $ref: '#/components/schemas/DailyProductionResponse'
  *       400:
  *         description: Error de validación o negocio
  *         content:
@@ -118,21 +111,20 @@ productionRouter.get(
  *               $ref: '#/components/schemas/ErrorResponse'
  */
 productionRouter.post(
-  "/",
+  "/daily",
   authenticateJWT,
   authorizeRoles(Role.ADMIN, Role.PANADERO),
   async (req: Request, res: Response) => {
-  const parsed = productionSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({
-      error: "Error de validación",
-      details: parsed.error.flatten()
-    });
-  }
+    const parsed = dailyProductionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Error de validación",
+        details: parsed.error.flatten()
+      });
+    }
 
     try {
-      const { recetaId, tandas } = parsed.data;
-      const data = await productionService.registrarProduccion(recetaId, tandas);
+      const data = await productionService.registrarProduccionDiaria(parsed.data);
       return res.status(201).json({ data });
     } catch (error) {
       return handleControllerError(error, res);
@@ -280,86 +272,6 @@ productionRouter.delete("/products/:id", authenticateJWT, authorizeRoles(Role.AD
     return handleControllerError(error, res);
   }
 });
-
-/**
- * @swagger
- * /api/production/recipes:
- *   get:
- *     summary: Listar recetas disponibles
- *     tags: [Production]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Listado de recetas
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/RecetaListResponse'
- *       500:
- *         description: Error interno del servidor
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-productionRouter.get(
-  "/recipes",
-  authenticateJWT,
-  authorizeRoles(Role.ADMIN, Role.PANADERO),
-  async (_req: Request, res: Response) => {
-    try {
-      const data = await productionService.listarRecetas();
-      return res.status(200).json({ data });
-    } catch (error) {
-      return handleControllerError(error, res);
-    }
-  }
-);
-
-/**
- * @swagger
- * /api/production/recipes:
- *   post:
- *     summary: Crear o actualizar una receta
- *     tags: [Production]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/UpsertRecetaRequest'
- *     responses:
- *       200:
- *         description: Receta actualizada o creada correctamente
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/RecetaResponse'
- */
-productionRouter.post(
-  "/recipes",
-  authenticateJWT,
-  authorizeRoles(Role.ADMIN),
-  async (req: Request, res: Response) => {
-    const parsed = upsertRecetaSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({
-        error: "Error de validación",
-        details: parsed.error.flatten()
-      });
-    }
-
-    try {
-      const data = await productionService.upsertReceta(parsed.data);
-      return res.status(200).json({ data });
-    } catch (error) {
-      return handleControllerError(error, res);
-    }
-  }
-);
 
 const handleControllerError = (error: unknown, res: Response) => {
   if (error instanceof Error) {

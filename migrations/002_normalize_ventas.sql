@@ -33,7 +33,6 @@ ALTER TABLE ventas ADD COLUMN usuario_id TEXT;
 ALTER TABLE ventas ADD COLUMN estado TEXT DEFAULT 'COMPLETA';
 
 CREATE INDEX IF NOT EXISTS idx_ventas_fecha ON ventas(fecha);
-CREATE INDEX IF NOT EXISTS idx_recetas_producto ON recetas(producto_id);
 CREATE INDEX IF NOT EXISTS idx_insumos_nombre ON insumos(nombre);
 CREATE INDEX IF NOT EXISTS idx_productos_nombre ON productos(nombre);
 CREATE INDEX IF NOT EXISTS idx_venta_items_producto ON venta_items(producto_id);

@@ -61,7 +61,8 @@ const run = async () => {
       .filter(Boolean);
 
     for (const statement of statements) {
-      const alterMatch = statement.replace(/\s+/g, " ").match(ALTER_ADD_COLUMN_REGEX);
+      const sanitized = statement.replace(/--.*$/gm, "").trim();
+      const alterMatch = sanitized.replace(/\s+/g, " ").match(ALTER_ADD_COLUMN_REGEX);
       if (alterMatch) {
         const { table, column } = alterMatch.groups;
         // Guard ALTER TABLE statements so rerunning migrations stays idempotent.
@@ -85,6 +86,9 @@ const run = async () => {
         }
       }
 
+      if (process.env.DEBUG_MIGRATIONS === "1") {
+        console.log(`   ${statement}`);
+      }
       await client.execute(statement);
     }
     console.log(`<<< Completed ${file}`);

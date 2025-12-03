@@ -918,12 +918,12 @@ export class SalesService {
     await this.client.execute(`CREATE TABLE IF NOT EXISTS venta_items (
       id TEXT PRIMARY KEY,
       venta_id TEXT NOT NULL,
-      producto_id TEXT NOT NULL,
+      producto_id TEXT,
       cantidad INTEGER NOT NULL,
       precio_unitario_cents INTEGER NOT NULL,
       subtotal_cents INTEGER NOT NULL,
       FOREIGN KEY (venta_id) REFERENCES ventas(id) ON DELETE CASCADE,
-      FOREIGN KEY (producto_id) REFERENCES productos(id)
+      FOREIGN KEY (producto_id) REFERENCES productos(id) ON DELETE SET NULL
     )`);
 
     await this.client.execute(`CREATE TABLE IF NOT EXISTS venta_pagos (
@@ -933,15 +933,6 @@ export class SalesService {
       cantidad_cents INTEGER NOT NULL,
       tasa REAL,
       FOREIGN KEY (venta_id) REFERENCES ventas(id) ON DELETE CASCADE
-    )`);
-
-    await this.client.execute(`CREATE TABLE IF NOT EXISTS receta_items (
-      id TEXT PRIMARY KEY,
-      receta_id TEXT NOT NULL,
-      insumo_id TEXT NOT NULL,
-      cantidad REAL NOT NULL,
-      FOREIGN KEY (receta_id) REFERENCES recetas(id) ON DELETE CASCADE,
-      FOREIGN KEY (insumo_id) REFERENCES insumos(id)
     )`);
 
     await this.client.execute(`CREATE TABLE IF NOT EXISTS encargos (
@@ -958,11 +949,11 @@ export class SalesService {
     await this.client.execute(`CREATE TABLE IF NOT EXISTS encargo_items (
       id TEXT PRIMARY KEY,
       encargo_id TEXT NOT NULL,
-      producto_id TEXT NOT NULL,
+      producto_id TEXT,
       cantidad INTEGER NOT NULL,
       precio_estimado_cents INTEGER NOT NULL,
       FOREIGN KEY (encargo_id) REFERENCES encargos(id) ON DELETE CASCADE,
-      FOREIGN KEY (producto_id) REFERENCES productos(id)
+      FOREIGN KEY (producto_id) REFERENCES productos(id) ON DELETE SET NULL
     )`);
 
     await this.client.execute(`CREATE TABLE IF NOT EXISTS encargo_abonos (
@@ -975,7 +966,6 @@ export class SalesService {
     )`);
 
     await this.client.execute("CREATE INDEX IF NOT EXISTS idx_ventas_fecha ON ventas(fecha)");
-    await this.client.execute("CREATE INDEX IF NOT EXISTS idx_recetas_producto ON recetas(producto_id)");
     await this.client.execute("CREATE INDEX IF NOT EXISTS idx_insumos_nombre ON insumos(nombre)");
     await this.client.execute("CREATE INDEX IF NOT EXISTS idx_productos_nombre ON productos(nombre)");
     await this.client.execute(

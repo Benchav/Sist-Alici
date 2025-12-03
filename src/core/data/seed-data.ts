@@ -3,7 +3,6 @@ import type { SystemConfig } from "../entities/config.entity";
 import type { Insumo } from "../entities/insumo.entity";
 import type { Producto } from "../entities/producto.entity";
 import type { Proveedor } from "../entities/proveedor.entity";
-import type { Receta } from "../entities/receta.entity";
 import { Role, type Usuario } from "../entities/usuario.entity";
 import type { Venta } from "../entities/venta.entity";
 
@@ -102,43 +101,6 @@ export const seedProducts: Producto[] = [
     precioUnitario: 180,
     precioVenta: 260,
     categoriaId: "CAT-REV-0001"
-  }
-];
-
-export const seedRecipes: Receta[] = [
-  {
-    id: "REC-BAG-0001",
-    productoId: "PRD-BAG-0001",
-    costoManoObra: 150,
-    rendimientoBase: 40,
-    items: [
-      { insumoId: "INS-HAR-50KG", cantidad: 1.5 },
-      { insumoId: "INS-LEV-KG", cantidad: 0.08 },
-      { insumoId: "INS-LEC-LTR", cantidad: 2.5 }
-    ]
-  },
-  {
-    id: "REC-PCH-0001",
-    productoId: "PRD-PCH-0001",
-    costoManoObra: 220,
-    rendimientoBase: 12,
-    items: [
-      { insumoId: "INS-HAR-50KG", cantidad: 1 },
-      { insumoId: "INS-AZU-50KG", cantidad: 0.6 },
-      { insumoId: "INS-HUE-CJA30", cantidad: 1.2 },
-      { insumoId: "INS-LEC-LTR", cantidad: 3 }
-    ]
-  },
-  {
-    id: "REC-PIC-0001",
-    productoId: "PRD-PIC-0001",
-    costoManoObra: 90,
-    rendimientoBase: 60,
-    items: [
-      { insumoId: "INS-HAR-50KG", cantidad: 0.7 },
-      { insumoId: "INS-AZU-50KG", cantidad: 0.3 },
-      { insumoId: "INS-LEV-KG", cantidad: 0.04 }
-    ]
   }
 ];
 

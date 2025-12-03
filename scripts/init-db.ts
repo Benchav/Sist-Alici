@@ -41,21 +41,13 @@ const ddlStatements = [
     categoria_id TEXT,
     FOREIGN KEY (categoria_id) REFERENCES categorias(id)
   )`,
-  `CREATE TABLE IF NOT EXISTS recetas (
-    id TEXT PRIMARY KEY,
-    producto_id TEXT NOT NULL,
-    costo_mano_obra REAL,
-    items TEXT NOT NULL,
-    rendimiento_base INTEGER NOT NULL DEFAULT 1,
-    FOREIGN KEY (producto_id) REFERENCES productos(id)
-  )`,
   `CREATE TABLE IF NOT EXISTS descartes (
     id TEXT PRIMARY KEY,
     producto_id TEXT NOT NULL,
     cantidad INTEGER NOT NULL,
     motivo TEXT,
     fecha TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (producto_id) REFERENCES productos(id)
+    FOREIGN KEY (producto_id) REFERENCES productos(id) ON DELETE CASCADE
   )`,
   `CREATE TABLE IF NOT EXISTS ventas (
     id TEXT PRIMARY KEY,
@@ -71,12 +63,12 @@ const ddlStatements = [
   `CREATE TABLE IF NOT EXISTS venta_items (
     id TEXT PRIMARY KEY,
     venta_id TEXT NOT NULL,
-    producto_id TEXT NOT NULL,
+    producto_id TEXT,
     cantidad INTEGER NOT NULL,
     precio_unitario_cents INTEGER NOT NULL,
     subtotal_cents INTEGER NOT NULL,
     FOREIGN KEY (venta_id) REFERENCES ventas(id) ON DELETE CASCADE,
-    FOREIGN KEY (producto_id) REFERENCES productos(id)
+    FOREIGN KEY (producto_id) REFERENCES productos(id) ON DELETE SET NULL
   )`,
   `CREATE TABLE IF NOT EXISTS venta_pagos (
     id TEXT PRIMARY KEY,
@@ -85,14 +77,6 @@ const ddlStatements = [
     cantidad_cents INTEGER NOT NULL,
     tasa REAL,
     FOREIGN KEY (venta_id) REFERENCES ventas(id) ON DELETE CASCADE
-  )`,
-  `CREATE TABLE IF NOT EXISTS receta_items (
-    id TEXT PRIMARY KEY,
-    receta_id TEXT NOT NULL,
-    insumo_id TEXT NOT NULL,
-    cantidad REAL NOT NULL,
-    FOREIGN KEY (receta_id) REFERENCES recetas(id) ON DELETE CASCADE,
-    FOREIGN KEY (insumo_id) REFERENCES insumos(id)
   )`,
   `CREATE TABLE IF NOT EXISTS encargos (
     id TEXT PRIMARY KEY,
@@ -107,11 +91,11 @@ const ddlStatements = [
   `CREATE TABLE IF NOT EXISTS encargo_items (
     id TEXT PRIMARY KEY,
     encargo_id TEXT NOT NULL,
-    producto_id TEXT NOT NULL,
+    producto_id TEXT,
     cantidad INTEGER NOT NULL,
     precio_estimado_cents INTEGER NOT NULL,
     FOREIGN KEY (encargo_id) REFERENCES encargos(id) ON DELETE CASCADE,
-    FOREIGN KEY (producto_id) REFERENCES productos(id)
+    FOREIGN KEY (producto_id) REFERENCES productos(id) ON DELETE SET NULL
   )`,
   `CREATE TABLE IF NOT EXISTS encargo_abonos (
     id TEXT PRIMARY KEY,
@@ -126,7 +110,6 @@ const ddlStatements = [
     value TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_ventas_fecha ON ventas(fecha)`,
-  `CREATE INDEX IF NOT EXISTS idx_recetas_producto ON recetas(producto_id)`,
   `CREATE INDEX IF NOT EXISTS idx_insumos_nombre ON insumos(nombre)`,
   `CREATE INDEX IF NOT EXISTS idx_productos_nombre ON productos(nombre)`,
   `CREATE INDEX IF NOT EXISTS idx_productos_categoria ON productos(categoria_id)`,

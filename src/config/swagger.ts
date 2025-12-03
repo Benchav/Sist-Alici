@@ -108,68 +108,74 @@ const swaggerOptions: Options = {
             }
           }
         },
-        RecetaItem: {
+        ProductionConsumption: {
           type: "object",
           properties: {
             insumoId: { type: "string" },
-            cantidad: { type: "number" }
+            cantidad: { type: "number" },
+            costoUnitario: { type: "number" },
+            costoTotal: { type: "number" }
           }
         },
-        Receta: {
-          allOf: [
-            { $ref: "#/components/schemas/Identifiable" },
-            {
-              type: "object",
-              properties: {
-                productoId: { type: "string" },
-                costoManoObra: { type: "number" },
-                rendimientoBase: { type: "integer", minimum: 1 },
-                items: {
-                  type: "array",
-                  items: { $ref: "#/components/schemas/RecetaItem" }
-                }
-              }
-            }
-          ]
-        },
-        RecetaListResponse: {
+        ProductionRecord: {
           type: "object",
           properties: {
-            data: {
+            id: { type: "string" },
+            productoId: { type: "string" },
+            volumenSolicitado: { type: "number" },
+            unidadVolumen: { type: "string" },
+            factorReceta: { type: "number" },
+            costoIngredientes: { type: "number" },
+            costoManoObra: { type: "number" },
+            costoTotal: { type: "number" },
+            costoUnitario: { type: "number", nullable: true },
+            insumosConsumidos: {
               type: "array",
-              items: { $ref: "#/components/schemas/Receta" }
-            }
-          }
-        },
-        RecetaResponse: {
-          type: "object",
-          properties: {
-            data: { $ref: "#/components/schemas/Receta" }
-          }
-        },
-        ProductionRequest: {
-          type: "object",
-          required: ["recetaId", "tandas"],
-          properties: {
-            recetaId: { type: "string" },
-            tandas: { type: "integer", example: 5 }
+              nullable: true,
+              items: { $ref: "#/components/schemas/ProductionConsumption" }
+            },
+            fecha: { type: "string", format: "date-time" }
           }
         },
         ProductionResponse: {
           type: "object",
           properties: {
+            data: { $ref: "#/components/schemas/ProductionRecord" }
+          }
+        },
+        DailyProductionConsumptionInput: {
+          type: "object",
+          required: ["insumoId", "cantidad"],
+          properties: {
+            insumoId: { type: "string" },
+            cantidad: { type: "number" }
+          }
+        },
+        DailyProductionLot: {
+          type: "object",
+          required: ["productoId", "cantidadProducida", "insumos"],
+          properties: {
+            productoId: { type: "string" },
+            cantidadProducida: { type: "number" },
+            costoManoObra: { type: "number", nullable: true },
+            insumos: {
+              type: "array",
+              items: { $ref: "#/components/schemas/DailyProductionConsumptionInput" },
+              minItems: 1
+            }
+          }
+        },
+        DailyProductionRequest: {
+          type: "array",
+          items: { $ref: "#/components/schemas/DailyProductionLot" },
+          minItems: 1
+        },
+        DailyProductionResponse: {
+          type: "object",
+          properties: {
             data: {
-              type: "object",
-              properties: {
-                id: { type: "string" },
-                recetaId: { type: "string" },
-                productoId: { type: "string" },
-                cantidadProducida: { type: "integer" },
-                costoIngredientes: { type: "number" },
-                costoManoObra: { type: "number" },
-                costoTotal: { type: "number" },
-                fecha: { type: "string", format: "date-time" }
-              }
+              type: "array",
+              items: { $ref: "#/components/schemas/ProductionRecord" }
             }
           }
         },
@@ -419,20 +425,6 @@ const swaggerOptions: Options = {
             data: { $ref: "#/components/schemas/Venta" },
             encargo: { $ref: "#/components/schemas/Encargo" },
             cambio: { type: "number" }
-          }
-        },
-        UpsertRecetaRequest: {
-          type: "object",
-          required: ["productoId", "items"],
-          properties: {
-            id: { type: "string", nullable: true },
-            productoId: { type: "string" },
-            costoManoObra: { type: "number" },
-            rendimientoBase: { type: "integer", minimum: 1 },
-            items: {
-              type: "array",
-              items: { $ref: "#/components/schemas/RecetaItem" }
-            }
           }
         },
         VentaItem: {

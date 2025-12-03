@@ -56,7 +56,6 @@ CREATE TABLE IF NOT EXISTS encargo_items (
 );
 
 -- Alteraciones a tablas existentes
-ALTER TABLE recetas ADD COLUMN rendimiento_base INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE productos ADD COLUMN categoria_id TEXT REFERENCES categorias(id);
 ALTER TABLE ventas ADD COLUMN descuento_cents INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE ventas ADD COLUMN tipo_venta TEXT NOT NULL DEFAULT 'DIRECTA' CHECK (tipo_venta IN ('DIRECTA', 'ENCARGO'));

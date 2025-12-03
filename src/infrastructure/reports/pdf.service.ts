@@ -25,11 +25,22 @@ const formatCurrencyByCode = (value: number, currency: string): string => {
 
 type PdfDoc = InstanceType<typeof PDFDocument>;
 
+interface InfoProducto {
+  nombre: string;
+  tipo: "PRODUCCION" | "REVENTA" | "INSUMO" | "DESCONOCIDO";
+}
+
+type CategorySummary = {
+  label: string;
+  unidades: number;
+  total: number;
+};
+
 export class PdfService {
   private readonly client = getTursoClient();
 
   public async generarFactura(venta: Venta): Promise<Buffer> {
-    const nombres = await this.obtenerNombresProductos(venta);
+    const infoProductos = await this.obtenerInfoProductos(venta);
     const atendidoPor = await this.obtenerNombreUsuario(venta.usuarioId);
     const subtotal = venta.items.reduce(
       (acc, item) => acc + item.precioUnitario * item.cantidad,
@@ -38,6 +49,15 @@ export class PdfService {
     const totalFactura = Number.isFinite(venta.totalNIO) ? venta.totalNIO : subtotal;
     const totalPagado = this.calcularPagadoCordobas(venta);
     const cambio = Math.max(totalPagado - totalFactura, 0);
+    const itemsProduccion = venta.items.filter((item) => {
+      const tipo = infoProductos.get(item.productoId)?.tipo ?? "DESCONOCIDO";
+      return tipo === "PRODUCCION" || tipo === "DESCONOCIDO";
+    });
+    const itemsReventa = venta.items.filter((item) => {
+      const tipo = infoProductos.get(item.productoId)?.tipo ?? "DESCONOCIDO";
+      return tipo === "REVENTA" || tipo === "INSUMO";
+    });
+    const resumenCategorias = this.buildCategorySummary(itemsProduccion, itemsReventa);
 
     return await new Promise<Buffer>((resolve, reject) => {
       const doc = new PDFDocument({ margin: 48, size: "A4" });
@@ -49,7 +69,13 @@ export class PdfService {
 
       this.drawHeader(doc);
       this.drawInvoiceMeta(doc, venta, atendidoPor);
-      this.drawItemsTable(doc, venta, nombres);
+      if (itemsProduccion.length) {
+        this.drawItemsTable(doc, itemsProduccion, infoProductos, "Productos de Panadería");
+      }
+      if (itemsReventa.length) {
+        this.drawItemsTable(doc, itemsReventa, infoProductos, "Artículos de Reventa / Otros");
+      }
+      this.drawCategorySummary(doc, resumenCategorias);
       this.drawTotalsSection(doc, subtotal, totalFactura, totalPagado, cambio);
       this.drawPaymentsSection(doc, venta, totalPagado, cambio);
       this.drawFooter(doc);
@@ -124,11 +150,13 @@ export class PdfService {
 
   private drawItemsTable(
     doc: PdfDoc,
-    venta: Venta,
-    nombres: Map<string, string>
+    items: Venta["items"],
+    infoProductos: Map<string, InfoProducto>,
+    tituloSeccion: string
   ): void {
     const { left, right } = doc.page.margins;
     const width = doc.page.width - left - right;
+    const usableBottom = doc.page.height - doc.page.margins.bottom;
     const columns = [
       { key: "producto", width: width * 0.45, align: "left" as const },
       { key: "cantidad", width: width * 0.15, align: "center" as const },
@@ -136,35 +164,48 @@ export class PdfService {
       { key: "subtotal", width: width * 0.2, align: "right" as const }
     ];
 
-    doc.moveDown(1.5);
-    doc.font("Helvetica-Bold").fontSize(12).fillColor("#0f172a").text("Detalle de ítems", left, doc.y);
-    const tableTop = doc.y + 12;
+    const renderHeader = (title: string): number => {
+      doc.moveDown(1.5);
+      doc.font("Helvetica-Bold").fontSize(12).fillColor("#0f172a").text(title, left, doc.y);
+      const tableTop = doc.y + 12;
 
-    doc.save();
-    doc.fillColor("#475569").font("Helvetica-Bold").fontSize(10);
-    let headerX = left;
-    columns.forEach((column) => {
-      const label =
-        column.key === "producto"
-          ? "Producto"
-          : column.key === "cantidad"
-            ? "Cantidad"
-            : column.key === "precio"
-              ? "P. Unitario"
-              : "Subtotal";
-      doc.text(label.toUpperCase(), headerX, tableTop, {
-        width: column.width,
-        align: column.align
+      doc.save();
+      doc.fillColor("#475569").font("Helvetica-Bold").fontSize(10);
+      let headerX = left;
+      columns.forEach((column) => {
+        const label =
+          column.key === "producto"
+            ? "Producto"
+            : column.key === "cantidad"
+              ? "Cantidad"
+              : column.key === "precio"
+                ? "P. Unitario"
+                : "Subtotal";
+        doc.text(label.toUpperCase(), headerX, tableTop, {
+          width: column.width,
+          align: column.align
+        });
+        headerX += column.width;
       });
-      headerX += column.width;
-    });
-    doc.strokeColor("#e2e8f0").lineWidth(1).moveTo(left, tableTop + 14).lineTo(left + width, tableTop + 14).stroke();
-    doc.restore();
+      doc.strokeColor("#e2e8f0").lineWidth(1).moveTo(left, tableTop + 14).lineTo(left + width, tableTop + 14).stroke();
+      doc.restore();
 
-    let rowY = tableTop + 22;
+      return tableTop + 22;
+    };
+
+    if (doc.y + 60 > usableBottom) {
+      doc.addPage();
+    }
+    let rowY = renderHeader(tituloSeccion);
+
     doc.font("Helvetica").fontSize(11).fillColor("#0f172a");
-    venta.items.forEach((item) => {
-      const nombre = nombres.get(item.productoId) ?? item.productoId;
+    items.forEach((item) => {
+      if (rowY + 20 > usableBottom) {
+        doc.addPage();
+        rowY = renderHeader(`${tituloSeccion} (cont.)`);
+      }
+      const info = infoProductos.get(item.productoId);
+      const nombre = info?.nombre ?? item.productoId;
       const subtotal = item.precioUnitario * item.cantidad;
       let cellX = left;
 
@@ -222,6 +263,40 @@ export class PdfService {
     doc.y = startY + rows.length * 18 + 10;
   }
 
+  private drawCategorySummary(doc: PdfDoc, summary: CategorySummary[]): void {
+    if (!summary.length) {
+      return;
+    }
+
+    const { left, right } = doc.page.margins;
+    const width = doc.page.width - left - right;
+    const columnWidth = width / summary.length;
+
+    doc.moveDown(1);
+    doc.font("Helvetica-Bold").fontSize(12).fillColor("#0f172a").text("Resumen por tipo de producto");
+    doc.moveDown(0.3);
+
+    summary.forEach((item, index) => {
+      const x = left + index * columnWidth;
+      const y = doc.y;
+      doc.font("Helvetica-Bold").fontSize(10).fillColor("#94a3b8").text(item.label.toUpperCase(), x, y, {
+        width: columnWidth,
+        align: "left"
+      });
+      doc.font("Helvetica").fontSize(11).fillColor("#0f172a").text(
+        `Unidades: ${item.unidades}\nTotal: ${formatCurrency(item.total)}`,
+        x,
+        y + 14,
+        {
+          width: columnWidth,
+          align: "left"
+        }
+      );
+    });
+
+    doc.moveDown(1.5);
+  }
+
   private drawPaymentsSection(
     doc: PdfDoc,
     venta: Venta,
@@ -273,9 +348,9 @@ export class PdfService {
     });
   }
 
-  private async obtenerNombresProductos(venta: Venta): Promise<Map<string, string>> {
+  private async obtenerInfoProductos(venta: Venta): Promise<Map<string, InfoProducto>> {
     const ids = Array.from(new Set(venta.items.map((item) => item.productoId)));
-    const map = new Map<string, string>();
+    const map = new Map<string, InfoProducto>();
 
     if (!ids.length) {
       return map;
@@ -283,12 +358,22 @@ export class PdfService {
 
     const placeholders = ids.map(() => "?").join(",");
     const { rows } = await this.client.execute({
-      sql: `SELECT id, nombre FROM productos WHERE id IN (${placeholders})`,
+      sql: `SELECT p.id, p.nombre, c.tipo
+            FROM productos p
+            LEFT JOIN categorias c ON p.categoria_id = c.id
+            WHERE p.id IN (${placeholders})`,
       args: ids
     });
 
     rows.forEach((row) => {
-      map.set(String(row.id), String(row.nombre));
+      const tipoRaw = (row.tipo ?? "DESCONOCIDO") as InfoProducto["tipo"];
+      const tipo: InfoProducto["tipo"] = tipoRaw === "PRODUCCION" || tipoRaw === "REVENTA" || tipoRaw === "INSUMO"
+        ? tipoRaw
+        : "DESCONOCIDO";
+      map.set(String(row.id), {
+        nombre: String(row.nombre ?? row.id),
+        tipo
+      });
     });
 
     return map;
@@ -317,5 +402,23 @@ export class PdfService {
       const tasa = pago.tasa ?? 1;
       return acc + (moneda === "USD" ? pago.cantidad * tasa : pago.cantidad);
     }, 0);
+  }
+
+  private buildCategorySummary(
+    itemsProduccion: Venta["items"],
+    itemsReventa: Venta["items"]
+  ): CategorySummary[] {
+    const resumen: CategorySummary[] = [];
+    if (itemsProduccion.length) {
+      const total = itemsProduccion.reduce((acc, item) => acc + item.precioUnitario * item.cantidad, 0);
+      const unidades = itemsProduccion.reduce((acc, item) => acc + item.cantidad, 0);
+      resumen.push({ label: "Producción", unidades, total });
+    }
+    if (itemsReventa.length) {
+      const total = itemsReventa.reduce((acc, item) => acc + item.precioUnitario * item.cantidad, 0);
+      const unidades = itemsReventa.reduce((acc, item) => acc + item.cantidad, 0);
+      resumen.push({ label: "Reventa", unidades, total });
+    }
+    return resumen;
   }
 }

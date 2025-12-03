@@ -3,7 +3,6 @@ import type { Categoria } from "../core/entities/categoria.entity";
 import type { Insumo } from "../core/entities/insumo.entity";
 import type { Producto } from "../core/entities/producto.entity";
 import type { Proveedor } from "../core/entities/proveedor.entity";
-import type { Receta } from "../core/entities/receta.entity";
 import type { DetallePago, Venta } from "../core/entities/venta.entity";
 import { Role, type Usuario } from "../core/entities/usuario.entity";
 
@@ -281,11 +280,15 @@ async function seedProductosReventa(token: string, categorias: Categoria[]): Pro
   return created;
 }
 
-async function seedRecetas(token: string, productos: Producto[], insumos: Insumo[]): Promise<Receta[]> {
+async function seedProduccionDiaria(token: string, productos: Producto[], insumos: Insumo[]): Promise<void> {
+  if (!productos.length) {
+    return;
+  }
+
   const insumoMap = new Map(insumos.map((insumo) => [insumo.nombre, insumo]));
   const productoMap = new Map(productos.map((producto) => [producto.nombre, producto]));
 
-  const recetaTemplates = [
+  const templates = [
     {
       productoNombre: productos[0].nombre,
       costoManoObra: 140,
@@ -334,54 +337,40 @@ async function seedRecetas(token: string, productos: Producto[], insumos: Insumo
     }
   ];
 
-  const created: Receta[] = [];
-  console.log(`Creando ${recetaTemplates.length} recetas...`);
-  for (const template of recetaTemplates) {
+  const lotes = [15, 18, 22, 20, 25];
+  const payload = templates.map((template, index) => {
     const producto = productoMap.get(template.productoNombre);
     if (!producto) {
-      throw new Error(`Producto ${template.productoNombre} no encontrado para receta.`);
+      throw new Error(`Producto ${template.productoNombre} no encontrado para producción.`);
     }
-
-    const items = template.items.map((item) => {
+    const cantidadProducida = lotes[index % lotes.length];
+    const factor = Math.max(1, cantidadProducida / 10);
+    const insumosConsumidos = template.items.map((item) => {
       const insumo = insumoMap.get(item.insumoNombre);
       if (!insumo) {
-        throw new Error(`Insumo ${item.insumoNombre} no encontrado para receta.`);
+        throw new Error(`Insumo ${item.insumoNombre} no encontrado para producción.`);
       }
-      return { insumoId: insumo.id, cantidad: item.cantidad };
+      return {
+        insumoId: insumo.id,
+        cantidad: Number((item.cantidad * factor).toFixed(2))
+      };
     });
 
-    const response = await callApi<ApiResponse<Receta>>("/production/recipes", {
-      method: "POST",
-      token,
-      body: {
-        productoId: producto.id,
-        costoManoObra: template.costoManoObra,
-        items
-      }
-    });
+    return {
+      productoId: producto.id,
+      cantidadProducida,
+      costoManoObra: template.costoManoObra,
+      insumos: insumosConsumidos
+    };
+  });
 
-    created.push(response.data);
-    console.log(`  • Receta ${response.data.id} para ${template.productoNombre}`);
-    await delay(50);
-  }
-
-  return created;
-}
-
-async function seedProduccion(token: string, recetas: Receta[]): Promise<void> {
-  const lotes = [15, 18, 22, 20, 25];
-  console.log("Registrando lotes de producción...");
-  for (let i = 0; i < recetas.length; i++) {
-    const receta = recetas[i];
-    const cantidad = lotes[i % lotes.length];
-    await callApi<ApiResponse<unknown>>("/production", {
-      method: "POST",
-      token,
-      body: { recetaId: receta.id, tandas: cantidad }
-    });
-    console.log(`  • Producción registrada: receta ${receta.id} x ${cantidad}`);
-    await delay(50);
-  }
+  console.log("Registrando producción diaria por volumen...");
+  await callApi<ApiResponse<unknown>>("/production/daily", {
+    method: "POST",
+    token,
+    body: payload
+  });
+  console.log(`  • ${payload.length} lotes diarios registrados`);
 }
 
 async function seedComprasReventa(token: string, productos: Producto[]): Promise<void> {
@@ -562,8 +551,7 @@ async function main(): Promise<void> {
     const insumos = await seedInsumos(token, proveedores);
     const productosProduccion = await seedProductos(token, categorias);
     const productosReventa = await seedProductosReventa(token, categorias);
-    const recetas = await seedRecetas(token, productosProduccion, insumos);
-    await seedProduccion(token, recetas);
+    await seedProduccionDiaria(token, productosProduccion, insumos);
     await seedComprasReventa(token, productosReventa);
     await seedVentas(token, productosProduccion);
     console.log("\nSemillas API completadas correctamente.");
@@ -576,5 +564,5 @@ async function main(): Promise<void> {
 void main();
 
 
-// Note: This script seeds the API with initial data including users, insumos, productos, recetas, production batches, and sales.
+// Note: This script seeds the API with initial data including users, insumos, productos, producción diaria y ventas.
 // correr npm run seed:api
